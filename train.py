@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
+import yaml
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from util import (
@@ -13,7 +14,7 @@ from util import (
     get_kernel_weight_matrix,
 )
 from model import ResNet50
-
+from torchvision.models import vgg16
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -22,6 +23,7 @@ def parse_args():
     parser.add_argument(
         "--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4)"
     )
+    parser.add_argument("--config", type=str, help="Path to YAML config file")
     parser.add_argument(
         "--num_epochs",
         type=int,
@@ -61,7 +63,17 @@ def parse_args():
     action="store_true",
     help="Use contrastive kernel loss (default: False)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.config:
+        with open(args.config, "r") as f:
+            config_dict = yaml.safe_load(f)
+        for key, value in config_dict.items():
+            if hasattr(args, key):
+                setattr(args, key, value)
+    
+            
+    return args
 
 
 def train_epoch(
@@ -182,9 +194,20 @@ def main():
     channels = 3 if args.dataset == "cifar10" else 1
 
     # Model initialization
-    model = ResNet50(num_classes=10, channels=channels).to(device)
+    if args.model.lower() == "resnet50":
+        model = ResNet50(num_classes=10, channels=channels).to(device)
+    elif args.model.lower() == "vgg16":
+        vgg = vgg16(weights=None)
+        if channels == 1:
+            vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
+        vgg.classifier[6] = nn.Linear(4096, 10)
+        model = vgg.to(device)
+    else:
+        raise ValueError(f"Unsupported model architecture: {args.model}")
     print(model)
-
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            print(f"{name} is frozen")
     contrastive_loss_fn = ContrastiveKernelLoss(margin=args.margin)
     classification_criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)

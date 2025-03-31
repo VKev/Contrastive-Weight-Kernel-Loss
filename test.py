@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from util import transform_mnist, transform_cifar10
 from model import ResNet50
-
+from torchvision.models import vgg16
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -15,13 +15,13 @@ def parse_args():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=64,
+        default=16,
         help="Batch size for testing (default: 128)",
     )
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default=r"./checkpoint/resnet50-margin10-cifar10-e60.pth",
+        default=r"./checkpoint/vgg16-margin2-mnist-e15.pth",
         help="Path to the model checkpoint",
     )
     parser.add_argument(
@@ -30,6 +30,12 @@ def parse_args():
         choices=["mnist", "cifar10"],
         default="mnist",
         help="Dataset to use for testing ('mnist' or 'cifar10')",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="resnet50",
+        help="Architecture to use (default: resnet50)",
     )
     return parser.parse_args()
 
@@ -76,12 +82,19 @@ def main():
         )
 
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    channels = 3 if args.dataset == "cifar10" else 1
+    if args.model.lower() == "resnet50":
+        model = ResNet50(num_classes=10, channels=channels).to(device)
+    elif args.model.lower() == "vgg16":
+        vgg = vgg16(weights=None)
+        if channels == 1:
+            vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
+        vgg.classifier[6] = nn.Linear(4096, 10)
+        model = vgg.to(device)
+    else:
+        raise ValueError(f"Unsupported model architecture: {args.model}")
 
-    model = ResNet50(num_classes=10, channels=3 if args.dataset == "cifar10" else 1).to(
-        device
-    )
-
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    checkpoint = torch.load(args.checkpoint,weights_only=True, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     print(f"Loaded checkpoint from '{args.checkpoint}'")
 

@@ -19,3 +19,13 @@
 | resnet50-margin6-mnist-e15   | 99.31%     |
 | resnet50-margin8-mnist-e15   | **99.50%** |
 | resnet50-margin10-mnist-e15  | **99.42%** |
+
+<br>
+<br>
+
+| Model                        | Acc@1      |
+|------------------------------|------------|
+| vgg16-base-mnist-e15.pth     | 98.98%     |
+| vgg16-margin2-mnist-e15      | **99.24%** |
+
+
