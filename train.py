@@ -14,7 +14,7 @@ from util import (
     get_kernel_weight_matrix,
 )
 from model import ResNet50
-from torchvision.models import vgg16
+from torchvision import models
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -197,11 +197,22 @@ def main():
     if args.model.lower() == "resnet50":
         model = ResNet50(num_classes=10, channels=channels).to(device)
     elif args.model.lower() == "vgg16":
-        vgg = vgg16(weights=None)
+        vgg = models.vgg16(weights=None)
         if channels == 1:
             vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
         vgg.classifier[6] = nn.Linear(4096, 10)
         model = vgg.to(device)
+    elif args.model.lower() == "lenet":
+        model = models.LeNet5()
+        if channels == 1:
+            model.conv1 = nn.Conv2d(1, 6, kernel_size=5, stride=1, padding=2)
+        model.fc2 = nn.Linear(120, 10) 
+    elif args.model.lower() == "googlenet" or args.model.lower() == "inceptionv3":
+        model = models.inception_v3(pretrained=False) 
+        if channels == 1:
+            model.Conv2d_1a_3x3 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=0) 
+        model.AuxLogits.fc = nn.Linear(768, 10)
+        model.fc = nn.Linear(2048, 10)
     else:
         raise ValueError(f"Unsupported model architecture: {args.model}")
     print(model)

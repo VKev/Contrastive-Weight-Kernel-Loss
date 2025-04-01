@@ -1,5 +1,5 @@
 dataset: mnist
-model: vgg16
+model: resnet50
 batch_size: 10
 contrastive_kernel_loss: false
 lr: 0.0001

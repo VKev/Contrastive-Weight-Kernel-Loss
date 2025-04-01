@@ -21,7 +21,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default=r"./checkpoint/vgg16-margin2-mnist-e15.pth",
+        default=r"./checkpoint/vgg16-margin4-mnist-e15.pth",
         help="Path to the model checkpoint",
     )
     parser.add_argument(
