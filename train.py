@@ -10,10 +10,11 @@ from tqdm import tqdm
 from util import (
     transform_mnist,
     transform_cifar10,
+    transform_mnist_224,
     ContrastiveKernelLoss,
     get_kernel_weight_matrix,
 )
-from model import ResNet50
+from model import ResNet50, LeNet5
 from torchvision import models
 
 def parse_args():
@@ -174,6 +175,8 @@ def main():
 
     # Select dataset based on args.dataset
     if args.dataset == "mnist":
+        if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
+            transform_mnist = transform_mnist_224
         full_dataset = datasets.MNIST(
             root="./data", train=True, transform=transform_mnist, download=True
         )
@@ -202,17 +205,16 @@ def main():
             vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
         vgg.classifier[6] = nn.Linear(4096, 10)
         model = vgg.to(device)
-    elif args.model.lower() == "lenet":
-        model = models.LeNet5()
+    elif args.model.lower() == "lenet5":
         if channels == 1:
-            model.conv1 = nn.Conv2d(1, 6, kernel_size=5, stride=1, padding=2)
-        model.fc2 = nn.Linear(120, 10) 
-    elif args.model.lower() == "googlenet" or args.model.lower() == "inceptionv3":
-        model = models.inception_v3(pretrained=False) 
+            model = LeNet5().to(device)
+        else:
+            raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
+    elif args.model.lower() == "googlenet":
+        googlenet = models.googlenet(pretrained=False, num_classes=10,aux_logits=False)
         if channels == 1:
-            model.Conv2d_1a_3x3 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=0) 
-        model.AuxLogits.fc = nn.Linear(768, 10)
-        model.fc = nn.Linear(2048, 10)
+            googlenet.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model = googlenet.to(device)
     else:
         raise ValueError(f"Unsupported model architecture: {args.model}")
     print(model)
