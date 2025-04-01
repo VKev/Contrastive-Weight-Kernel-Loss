@@ -4,9 +4,11 @@ import torch.nn as nn
 from torchvision import datasets
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from util import transform_mnist, transform_cifar10
+from util import transform_mnist, transform_cifar10,transform_mnist_224
 from model import ResNet50
 from torchvision.models import vgg16
+from model import ResNet50, LeNet5
+from torchvision import models
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -73,8 +75,12 @@ def main():
 
     # Select dataset based on args.dataset
     if args.dataset == "mnist":
+        if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
+            transform = transform_mnist_224
+        else:
+            transform = transform_mnist
         test_dataset = datasets.MNIST(
-            root="./data", train=False, transform=transform_mnist, download=True
+            root="./data", train=True, transform=transform, download=True
         )
     elif args.dataset == "cifar10":
         test_dataset = datasets.CIFAR10(
@@ -86,11 +92,21 @@ def main():
     if args.model.lower() == "resnet50":
         model = ResNet50(num_classes=10, channels=channels).to(device)
     elif args.model.lower() == "vgg16":
-        vgg = vgg16(weights=None)
+        vgg = models.vgg16(weights=None)
         if channels == 1:
             vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
         vgg.classifier[6] = nn.Linear(4096, 10)
         model = vgg.to(device)
+    elif args.model.lower() == "lenet5":
+        if channels == 1:
+            model = LeNet5().to(device)
+        else:
+            raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
+    elif args.model.lower() == "googlenet":
+        googlenet = models.googlenet(pretrained=False, num_classes=10,aux_logits=False)
+        if channels == 1:
+            googlenet.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model = googlenet.to(device)
     else:
         raise ValueError(f"Unsupported model architecture: {args.model}")
 

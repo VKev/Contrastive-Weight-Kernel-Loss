@@ -100,7 +100,6 @@ def train_epoch(
                 )
                 if filtered_kernels is not None:
                     kernel_list.append(filtered_kernels)
-
         kernel_loss = (
             kernel_loss_fn(kernel_list)
             if kernel_list
@@ -176,9 +175,11 @@ def main():
     # Select dataset based on args.dataset
     if args.dataset == "mnist":
         if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
-            transform_mnist = transform_mnist_224
+            transform = transform_mnist_224
+        else:
+            transform = transform_mnist
         full_dataset = datasets.MNIST(
-            root="./data", train=True, transform=transform_mnist, download=True
+            root="./data", train=True, transform=transform, download=True
         )
     elif args.dataset == "cifar10":
         full_dataset = datasets.CIFAR10(
@@ -241,6 +242,17 @@ def main():
     checkpoint_dir = "checkpoint"
     os.makedirs(checkpoint_dir, exist_ok=True)
 
+    kernel_list = []
+    for module in model.modules():
+        if isinstance(module, nn.Conv2d):
+            filtered_kernels = get_kernel_weight_matrix(
+                module.weight, ignore_sizes=[1]
+            )
+            if filtered_kernels is not None:
+                kernel_list.append(filtered_kernels)
+    
+    print("Conv layers num: ", len(kernel_list))
+    
     for epoch in range(start_epoch, args.num_epochs):
         print(f"Epoch {epoch+1}/{args.num_epochs}")
         train_loss = train_epoch(

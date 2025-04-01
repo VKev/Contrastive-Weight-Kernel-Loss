@@ -1,32 +1,41 @@
-# CIFAR10 Results
+# Contrastive Kernel Loss
 
-| Model                        | Acc@1      |
-|------------------------------|------------|
-| resnet50-base-cifar10-e60    | 85.41%     |
-| resnet50-margin2-cifar10-e60 | **85.71%** |
-| resnet50-margin4-cifar10-e60 | **86.62%** |
-| resnet50-margin6-cifar10-e60 | **85.68%** |
-| resnet50-margin8-cifar10-e60 | 85.32%     |
-| resnet50-margin10-cifar10-e60| **85.46%** |
+This repository implements the **Contrastive Kernel Loss** (CKL) for training models on datasets like CIFAR-10 and MNIST. The CKL is designed to improve the performance of models by leveraging kernel-based contrastive loss functions.
 
-# MNIST Results
+## Formula for Contrastive Kernel Loss
 
-| Model                        | Acc@1      |
-|------------------------------|------------|
-| resnet50-base-mnist-e15      | 99.35%     |
-| resnet50-margin2-mnist-e15   | **99.40%** |
-| resnet50-margin4-mnist-e15   | 99.24%     |
-| resnet50-margin6-mnist-e15   | 99.31%     |
-| resnet50-margin8-mnist-e15   | **99.50%** |
-| resnet50-margin10-mnist-e15  | **99.42%** |
+The Contrastive Kernel Loss is defined as:
 
-<br>
-<br>
+$$
+\mathcal{L}_{CK} = \frac{1}{L} \sum_{\ell=1}^{L} \frac{1}{N_{\ell}(N_{\ell} - 1)} \sum_{i,j=1, i \neq j}^{N_{\ell}} \text{max} \left( 0, \text{margin} - \| I_{\ell} - \left( K_{\ell}^{(i)} \right)^{-1} K_{\ell}^{(j)} \|_F \right)
+$$
 
-| Model                        | Acc@1      |
-|------------------------------|------------|
-| vgg16-base-mnist-e15.pth     | 98.98%     |
-| vgg16-margin2-mnist-e15      | **99.24%** |
-| vgg16-margin4-mnist-e15      | **99.39%** |
+Where:
 
+- L is the number of Layers,
+- N is the number of Kernels in Layer
+- I is the identity matrix for Layer
+- K is Kernel weight matrix
+- margin is a hyperparameter that controls the margin between positive and negative samples.
 
+## CIFAR-10 Results
+
+| Model                     | Margin | Acc@1      | Acc@5 |
+| ------------------------- | ------ | ---------- | ----- |
+| resnet50-base-cifar10     | -      | 85.41%     | N/A   |
+| resnet50-margin2-cifar10  | 2      | **85.71%** | N/A   |
+| resnet50-margin4-cifar10  | 4      | **86.62%** | N/A   |
+| resnet50-margin6-cifar10  | 6      | **85.68%** | N/A   |
+| resnet50-margin8-cifar10  | 8      | 85.32%     | N/A   |
+| resnet50-margin10-cifar10 | 10     | **85.46%** | N/A   |
+
+## MNIST Results
+
+| Model                   | Margin | Acc@1      | Acc@5 |     |     | Model               | Margin | Acc@1      | Acc@5 |
+| ----------------------- | ------ | ---------- | ----- | --- | --- | ------------------- | ------ | ---------- | ----- |
+| resnet50-base-mnist     | -      | 99.35%     | N/A   |     |     | vgg16-base-mnist    | -      | 99.25%     | N/A   |
+| resnet50-margin2-mnist  | 2      | **99.40%** | N/A   |     |     | vgg16-margin2-mnist | 2      | **99.54%** | N/A   |
+| resnet50-margin4-mnist  | 4      | 99.24%     | N/A   |     |     | vgg16-margin4-mnist | 4      | **99.39%** | N/A   |
+| resnet50-margin6-mnist  | 6      | 99.31%     | N/A   |     |     |                     |        |            |       |
+| resnet50-margin8-mnist  | 8      | **99.50%** | N/A   |     |     |                     |        |            |       |
+| resnet50-margin10-mnist | 10     | **99.42%** | N/A   |     |     |                     |        |            |       |
