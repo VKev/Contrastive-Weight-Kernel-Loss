@@ -1,7 +1,7 @@
-dataset: mnist
+dataset: cifar10
 model: resnet50
-batch_size: 10
+batch_size: 128
 contrastive_kernel_loss: false
 lr: 0.0001
-num_epochs: 15
+num_epochs: 60
 margin: 0

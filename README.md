@@ -37,11 +37,11 @@ googlenet-base-cifar10-e60 89.69%
 
 All model train in 15 epoch
 
-| Model                   | Margin | Acc@1      | Acc@5 |     |     | Model                | Margin | Acc@1      | Acc@5 |
-| ----------------------- | ------ | ---------- | ----- | --- | --- | -------------------- | ------ | ---------- | ----- |
-| resnet50-base-mnist     | -      | 99.35%     | N/A   |     |     | vgg16-base-mnist     | -      | 99.25%     | N/A   |
-| resnet50-margin2-mnist  | 2      | **99.40%** | N/A   |     |     | vgg16-margin2-mnist  | 2      | **99.54%** | N/A   |
-| resnet50-margin4-mnist  | 4      | 99.24%     | N/A   |     |     | vgg16-margin4-mnist  | 4      | **99.39%** | N/A   |
-| resnet50-margin6-mnist  | 6      | 99.31%     | N/A   |     |     | vgg16-margin6-mnist  | 6      | **99.46%** |       |
-| resnet50-margin8-mnist  | 8      | **99.50%** | N/A   |     |     | vgg16-margin8-mnist  | 8      | **99.51%** |       |
-| resnet50-margin10-mnist | 10     | **99.42%** | N/A   |     |     | vgg16-margin10-mnist | 10     | **99.30%** |       |
+| Model                   | Margin | Acc@1      |     | Model                | Margin | Acc@1      |
+| ----------------------- | ------ | ---------- | --- | -------------------- | ------ | ---------- |
+| resnet50-base-mnist     | -      | 99.35%     |     | vgg16-base-mnist     | -      | 99.25%     |
+| resnet50-margin2-mnist  | 2      | **99.40%** |     | vgg16-margin2-mnist  | 2      | **99.54%** |
+| resnet50-margin4-mnist  | 4      | 99.24%     |     | vgg16-margin4-mnist  | 4      | **99.39%** |
+| resnet50-margin6-mnist  | 6      | 99.31%     |     | vgg16-margin6-mnist  | 6      | **99.46%** |
+| resnet50-margin8-mnist  | 8      | **99.50%** |     | vgg16-margin8-mnist  | 8      | **99.51%** |
+| resnet50-margin10-mnist | 10     | **99.42%** |     | vgg16-margin10-mnist | 10     | **99.30%** |
