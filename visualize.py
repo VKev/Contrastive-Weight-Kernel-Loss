@@ -80,7 +80,7 @@ def visualize_kernel_similarity(kernels, eps=1e-8):
     diff_norm = torch.linalg.norm(diff, dim=(2, 3))
 
     # Apply the hinge loss: only penalize pairs for which diff_norm is below margin.
-    similarity = torch.clamp(diff_norm, min=0, max=25)
+    similarity = torch.clamp(diff_norm, min=0, max=10)
 
     # Plotting the similarity map.
     plt.figure(figsize=(8, 8))
@@ -90,12 +90,6 @@ def visualize_kernel_similarity(kernels, eps=1e-8):
     plt.ylabel("Kernel Index")
     plt.show()
     
-    plt.figure(figsize=(6, 4))
-    sns.histplot(similarity.cpu().detach().numpy().flatten(), bins=20, kde=True, color="skyblue")
-    plt.title("Distribution of Kernel Similarity")
-    plt.xlabel("Similarity")
-    plt.ylabel("Frequency")
-    plt.show()
 
 def visualize_kernels(kernels):
     if isinstance(kernels, torch.Tensor):
@@ -145,7 +139,7 @@ def main():
     checkpoint = torch.load(args.checkpoint,weights_only=True, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    visualize_kernel_similarity(kernel_list[1])
+    visualize_kernel_similarity(kernel_list[0])
     # visualize_kernels(kernel_list[0])
 
     

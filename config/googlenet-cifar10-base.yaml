@@ -1,7 +1,7 @@
 dataset: cifar10
 model: googlenet
-batch_size: 32
-contrastive_kernel_loss: false
+batch_size: 128
+contrastive_kernel_loss: False
 lr: 0.0002
 num_epochs: 60
 margin: 0

@@ -20,6 +20,8 @@ Where:
 
 ## CIFAR-10 Results
 
+All model train in 60 epoch
+
 | Model                     | Margin | Acc@1      | Acc@5 |
 | ------------------------- | ------ | ---------- | ----- |
 | resnet50-base-cifar10     | -      | 85.41%     | N/A   |
@@ -29,13 +31,17 @@ Where:
 | resnet50-margin8-cifar10  | 8      | 85.32%     | N/A   |
 | resnet50-margin10-cifar10 | 10     | **85.46%** | N/A   |
 
+googlenet-base-cifar10-e60 89.69%
+
 ## MNIST Results
 
-| Model                   | Margin | Acc@1      | Acc@5 |     |     | Model               | Margin | Acc@1      | Acc@5 |
-| ----------------------- | ------ | ---------- | ----- | --- | --- | ------------------- | ------ | ---------- | ----- |
-| resnet50-base-mnist     | -      | 99.35%     | N/A   |     |     | vgg16-base-mnist    | -      | 99.25%     | N/A   |
-| resnet50-margin2-mnist  | 2      | **99.40%** | N/A   |     |     | vgg16-margin2-mnist | 2      | **99.54%** | N/A   |
-| resnet50-margin4-mnist  | 4      | 99.24%     | N/A   |     |     | vgg16-margin4-mnist | 4      | **99.39%** | N/A   |
-| resnet50-margin6-mnist  | 6      | 99.31%     | N/A   |     |     |                     |        |            |       |
-| resnet50-margin8-mnist  | 8      | **99.50%** | N/A   |     |     |                     |        |            |       |
-| resnet50-margin10-mnist | 10     | **99.42%** | N/A   |     |     |                     |        |            |       |
+All model train in 15 epoch
+
+| Model                   | Margin | Acc@1      | Acc@5 |     |     | Model                | Margin | Acc@1      | Acc@5 |
+| ----------------------- | ------ | ---------- | ----- | --- | --- | -------------------- | ------ | ---------- | ----- |
+| resnet50-base-mnist     | -      | 99.35%     | N/A   |     |     | vgg16-base-mnist     | -      | 99.25%     | N/A   |
+| resnet50-margin2-mnist  | 2      | **99.40%** | N/A   |     |     | vgg16-margin2-mnist  | 2      | **99.54%** | N/A   |
+| resnet50-margin4-mnist  | 4      | 99.24%     | N/A   |     |     | vgg16-margin4-mnist  | 4      | **99.39%** | N/A   |
+| resnet50-margin6-mnist  | 6      | 99.31%     | N/A   |     |     | vgg16-margin6-mnist  | 6      | **99.46%** |       |
+| resnet50-margin8-mnist  | 8      | **99.50%** | N/A   |     |     | vgg16-margin8-mnist  | 8      | **99.51%** |       |
+| resnet50-margin10-mnist | 10     | **99.42%** | N/A   |     |     | vgg16-margin10-mnist | 10     | **99.30%** |       |

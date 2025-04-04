@@ -103,14 +103,14 @@ def main():
         else:
             raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
     elif args.model.lower() == "googlenet":
-        googlenet = models.googlenet(pretrained=False, num_classes=10,aux_logits=False)
+        googlenet = models.googlenet(weights=None, num_classes=10,aux_logits=False)
         if channels == 1:
             googlenet.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         model = googlenet.to(device)
     else:
         raise ValueError(f"Unsupported model architecture: {args.model}")
 
-    checkpoint = torch.load(args.checkpoint,weights_only=True, map_location=device)
+    checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     print(f"Loaded checkpoint from '{args.checkpoint}'")
 
