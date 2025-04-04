@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default=r"./checkpoint/vgg16-margin4-mnist-e15.pth",
+        default=r"./checkpoint/resnet/resnet50-margin10-mnist-e15.pth",
         help="Path to the model checkpoint",
     )
     parser.add_argument("--config", type=str, help="Path to YAML config file")
@@ -80,7 +80,7 @@ def visualize_kernel_similarity(kernels, eps=1e-8):
     diff_norm = torch.linalg.norm(diff, dim=(2, 3))
 
     # Apply the hinge loss: only penalize pairs for which diff_norm is below margin.
-    similarity = torch.clamp(diff_norm, min=0, max=10)
+    similarity = torch.clamp(diff_norm, min=0, max=25)
 
     # Plotting the similarity map.
     plt.figure(figsize=(8, 8))

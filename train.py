@@ -16,6 +16,7 @@ from util import (
 )
 from model import ResNet50, LeNet5
 from torchvision import models
+import random
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -23,6 +24,9 @@ def parse_args():
     )
     parser.add_argument(
         "--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4)"
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=1, help="Learning rate (default: 1)"
     )
     parser.add_argument("--config", type=str, help="Path to YAML config file")
     parser.add_argument(
@@ -53,6 +57,12 @@ def parse_args():
         help="Path to checkpoint to resume from (default: '')",
     )
     parser.add_argument(
+        "--mode",
+        type=str,
+        default=r"full-layer",
+        help="full-layer or random-sampling",
+    )
+    parser.add_argument(
         "--dataset",
         type=str,
         choices=["mnist", "cifar10"],
@@ -76,6 +86,32 @@ def parse_args():
             
     return args
 
+def select_random_kernels(kernel_list, k):
+    """
+    Selects k random kernels from each kernel layer in the kernel list.
+
+    Args:
+        kernel_list (list): List of tensors where each tensor has shape (N, H, W).
+        k (int): Number of kernels to randomly select from each layer.
+
+    Returns:
+        list: A list of tensors where each tensor has shape (k, H, W).
+    """
+    selected_kernels = []
+
+    for kernels in kernel_list:
+        N, H, W = kernels.shape
+        # Ensure k does not exceed the number of available kernels
+        k = min(k, N)
+        
+        # Randomly select k indices from the range of available kernels
+        selected_indices = random.sample(range(N), k)
+        
+        # Select the kernels using the chosen indices
+        selected = kernels[selected_indices, :, :]
+        selected_kernels.append(selected)
+
+    return selected_kernels
 
 def train_epoch(
     model, train_loader, optimizer, cls_criterion, kernel_loss_fn, device, args
@@ -100,13 +136,23 @@ def train_epoch(
                 )
                 if filtered_kernels is not None:
                     kernel_list.append(filtered_kernels)
-        kernel_loss = (
+        
+        # kernel_list = [kernel_list[0], kernel_list[2], kernel_list[4], kernel_list[6]]
+        if args.mode.lower() == 'random-sampling':
+            kernel_list = select_random_kernels(kernel_list, k = 12)
+            kernel_loss = (
+            kernel_loss_fn(kernel_list)
+            if kernel_list
+            else torch.tensor(0.0, device=device)
+            )
+        else:
+            kernel_loss = (
             kernel_loss_fn(kernel_list)
             if kernel_list
             else torch.tensor(0.0, device=device)
         )
         if args.contrastive_kernel_loss:
-            total_loss = cls_loss + kernel_loss
+            total_loss = cls_loss + args.alpha*kernel_loss
         else:
             total_loss = cls_loss
         optimizer.zero_grad()
@@ -191,8 +237,8 @@ def main():
     val_size = dataset_size - train_size
     train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=16)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16)
 
     # Determine the number of channels based on dataset
     channels = 3 if args.dataset == "cifar10" else 1
