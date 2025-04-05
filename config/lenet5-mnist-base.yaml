@@ -1,8 +1,8 @@
 dataset: mnist
 model: lenet5
-batch_size: 128
+batch_size: 256
 contrastive_kernel_loss: false
-lr: 0.001
-num_epochs: 60
+lr: 0.005
+num_epochs: 30
 margin: 0
 alpha: 1

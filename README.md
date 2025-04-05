@@ -20,28 +20,31 @@ Where:
 
 ## CIFAR-10 Results
 
-All model train in 60 epoch
 
-| Model                     | Margin | Acc@1      | Acc@5 |
-| ------------------------- | ------ | ---------- | ----- |
-| resnet50-base-cifar10     | -      | 85.41%     | N/A   |
-| resnet50-margin2-cifar10  | 2      | **85.71%** | N/A   |
-| resnet50-margin4-cifar10  | 4      | **86.62%** | N/A   |
-| resnet50-margin6-cifar10  | 6      | **85.68%** | N/A   |
-| resnet50-margin8-cifar10  | 8      | 85.32%     | N/A   |
-| resnet50-margin10-cifar10 | 10     | **85.46%** | N/A   |
+googlenet-base-cifar10-e60 85.72%
+googlenet-margin2-cifar10-e60 **87.80%** alpha 0.1
+googlenet-margin4-cifar10-e60 **87.09%** alpha 0.1
+googlenet-margin6-cifar10-e60 <u>**87.89%**</u> alpha 0.1
 
-googlenet-base-cifar10-e60 89.69%
 
-## MNIST Results
+### VGG16 on MNIST
 
-All model train in 15 epoch
+| Model                | Acc@1      | Margin | Alpha |
+|----------------------|------------|--------|-------|
+| vgg16-base-mnist     | 99.43%     | -      | -     |
+| vgg16-margin2-mnist  | **99.45%** | 2      | 1     |
+| vgg16-margin4-mnist  | **99.44%** | 4      | 1     |
+| vgg16-margin6-mnist  | 99.41%     | 6      | 1     |
+| vgg16-margin8-mnist  | **99.50%** | 8      | 1     |
+| vgg16-margin10-mnist | <u>**99.51%**</u> | 10     | 1     |
 
-| Model                   | Margin | Acc@1      |     | Model                | Margin | Acc@1      |
-| ----------------------- | ------ | ---------- | --- | -------------------- | ------ | ---------- |
-| resnet50-base-mnist     | -      | 99.35%     |     | vgg16-base-mnist     | -      | 99.25%     |
-| resnet50-margin2-mnist  | 2      | **99.40%** |     | vgg16-margin2-mnist  | 2      | **99.54%** |
-| resnet50-margin4-mnist  | 4      | 99.24%     |     | vgg16-margin4-mnist  | 4      | **99.39%** |
-| resnet50-margin6-mnist  | 6      | 99.31%     |     | vgg16-margin6-mnist  | 6      | **99.46%** |
-| resnet50-margin8-mnist  | 8      | **99.50%** |     | vgg16-margin8-mnist  | 8      | **99.51%** |
-| resnet50-margin10-mnist | 10     | **99.42%** |     | vgg16-margin10-mnist | 10     | **99.30%** |
+### LeNet on MNIST
+
+| Model           | Accuracy          | Margin | Alpha |
+|-----------------|-------------------|--------|-------|
+| LeNet           | 98.85%            | -      | -     |
+| LeNet Margin 2  | **98.93%**        | 2      | 0.1   |
+| LeNet Margin 4  | **98.96%**        | 4      | 0.1   |
+| LeNet Margin 6  | <u>**99.01%**</u> | 6      | 0.05  |
+| LeNet Margin 8  | **98.93%**        | 8      | 0.05  |
+| LeNet Margin 10 | **98.98%**        | 10     | 0.025 |

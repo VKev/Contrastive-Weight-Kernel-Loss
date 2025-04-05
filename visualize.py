@@ -2,15 +2,16 @@ import yaml
 import torch
 import argparse
 import torch.nn as nn
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch_cka import CKA
 import numpy as np
-from model import ResNet50
 from torchvision.models import vgg16
 import seaborn as sns
 from util import (
     get_kernel_weight_matrix,
 )
+from model import ResNet50, LeNet5
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -49,7 +50,7 @@ def parse_args():
     return args
 
 
-def visualize_kernel_similarity(kernels, eps=1e-8):
+def visualize_kernel_similarity(kernels, eps=1e-8, margin=1.0):
     """
     Visualize the similarity map of a single set of convolutional kernels.
     
@@ -69,19 +70,30 @@ def visualize_kernel_similarity(kernels, eps=1e-8):
     inv_kernels = torch.linalg.inv(kernels_normed)
 
     # Expand dims to perform pairwise multiplication:
-    inv_expanded = inv_kernels.unsqueeze(1)
-    kernels_expanded = kernels_normed.unsqueeze(0)
-    pairwise_product = torch.matmul(inv_expanded, kernels_expanded)
-    # Compute the difference from the identity matrix.
+    inv_expanded = inv_kernels.unsqueeze(1)   # shape: (n, 1, d, d)
+    kernels_expanded = kernels_normed.unsqueeze(0)  # shape: (1, n, d, d)
+    
+    # Compute inv(kernel_i) @ kernel_j for all pairs
+    pairwise_inv_AB = torch.matmul(inv_expanded, kernels_expanded)  # shape: (n, n, d, d)
+    # Compute inv(kernel_j) @ kernel_i for all pairs
+    pairwise_inv_BA = torch.matmul(inv_kernels.unsqueeze(0), kernels_normed.unsqueeze(1))  # shape: (n, n, d, d)
+    
+    # Create the pairwise difference matrix by subtracting from identity
     I = torch.eye(d, device=kernels.device, dtype=kernels.dtype).view(1, 1, d, d)
-    diff = I - pairwise_product
+    diff_AB = I - pairwise_inv_AB  # shape: (n, n, d, d)
+    diff_BA = I - pairwise_inv_BA  # shape: (n, n, d, d)
+    
+    # Compute the Frobenius norm of the differences for each pair.
+    diff_norm_AB = torch.linalg.norm(diff_AB, dim=(2, 3))  # shape: (n, n)
+    diff_norm_BA = torch.linalg.norm(diff_BA, dim=(2, 3))  # shape: (n, n)
+    
+    # Combine the two differences (for lower triangle and upper triangle).
+    combined_diff_norm = torch.tril(diff_norm_AB) + torch.triu(diff_norm_BA)  # Combine lower and upper triangles
 
-    # Compute the Frobenius norm of the difference for each pair.
-    diff_norm = torch.linalg.norm(diff, dim=(2, 3))
-
-    # Apply the hinge loss: only penalize pairs for which diff_norm is below margin.
-    similarity = torch.clamp(diff_norm, min=0, max=25)
-
+    mask = torch.ones(n, n, dtype=torch.bool, device=kernels.device)
+    mask.fill_diagonal_(False)
+    similarity = combined_diff_norm * mask
+    similarity = torch.clamp(similarity, min=0, max=50)
     # Plotting the similarity map.
     plt.figure(figsize=(8, 8))
     sns.heatmap(similarity.cpu().detach().numpy(), annot=False, cmap="coolwarm", cbar=True, square=True)
@@ -124,6 +136,11 @@ def main():
             vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
         vgg.classifier[6] = nn.Linear(4096, 10)
         model = vgg.to(device)
+    elif args.model.lower() == "lenet5":
+        if channels == 1:
+            model = LeNet5().to(device)
+        else:
+            raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
     else:
         raise ValueError(f"Unsupported model architecture: {args.model}")
     

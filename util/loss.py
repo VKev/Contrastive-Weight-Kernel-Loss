@@ -2,10 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 class ContrastiveKernelLoss(nn.Module):
     def __init__(self, margin=1.0, eps=1e-8):
         """
