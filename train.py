@@ -10,6 +10,7 @@ from tqdm import tqdm
 from util import (
     transform_mnist,
     transform_cifar10_train,
+    transform_cifar10_test,
     transform_mnist_224,
     ContrastiveKernelLoss,
     get_kernel_weight_matrix,
@@ -21,72 +22,69 @@ from torchvision import models
 import random
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Train ResNet50 on MNIST or CIFAR-10 with combined loss"
-    )
-    parser.add_argument(
-        "--lr", type=float, default=1e-4, help="Learning rate (default: 1e-4)"
-    )
-    parser.add_argument(
-        "--alpha", type=float, default=1, help="Learning rate (default: 1)"
-    )
-    parser.add_argument("--config", type=str, help="Path to YAML config file")
-    parser.add_argument(
-        "--num_epochs",
-        type=int,
-        default=100,
-        help="Number of training epochs (default: 5)",
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=32, help="Batch size (default: 32)"
-    )
-    parser.add_argument(
-        "--margin",
-        type=float,
-        default=8,
-        help="Margin for Contrastive Kernel Loss (default: 10)",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="resnet50",
-        help="Architecture to use (default: resnet50)",
-    )
-    parser.add_argument(
-        "--resume",
-        type=str,
-        default=r"",
-        help="Path to checkpoint to resume from (default: '')",
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default=r"full-layer",
-        help="full-layer or random-sampling",
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        choices=["mnist", "cifar10"],
-        default="mnist",
-        help="Dataset to use for training ('mnist' or 'cifar10')",
-    )
-    parser.add_argument(
-    "--contrastive_kernel_loss",
-    action="store_true",
-    help="Use contrastive kernel loss (default: False)",
-    )
-    args = parser.parse_args()
+    mini_parser = argparse.ArgumentParser(add_help=False)
+    mini_parser.add_argument("--resume", type=str, default="")
+    mini_parser.add_argument("--config", type=str, default=None)
+    mini_args, _ = mini_parser.parse_known_args()
 
-    if args.config:
-        with open(args.config, "r") as f:
-            config_dict = yaml.safe_load(f)
-        for key, value in config_dict.items():
-            if hasattr(args, key):
-                setattr(args, key, value)
-    
-            
-    return args
+    if mini_args.resume and os.path.exists(mini_args.resume):
+        checkpoint = torch.load(mini_args.resume, map_location="cpu")
+        saved_args = checkpoint["args"] 
+
+        parser = argparse.ArgumentParser(
+            description="Train ResNet50 on MNIST or CIFAR-10 with combined loss"
+        )
+        for k, v in saved_args.items():
+            if k == "resume":
+                continue
+            if k == "config":
+                continue
+            if isinstance(v, bool):
+                parser.add_argument(f"--{k}", action="store_true" if v else "store_false", default=v)
+            else:
+                parser.add_argument(f"--{k}", type=type(v), default=v)
+
+        parser.add_argument("--resume", type=str, default=mini_args.resume)
+        parser.add_argument("--config", type=str, default=None)
+
+        args = parser.parse_args()
+        if args.config:
+            if os.path.exists(args.config):
+                with open(args.config, "r") as f:
+                    config_dict = yaml.safe_load(f)
+                for key, value in config_dict.items():
+                    if hasattr(args, key):
+                        setattr(args, key, value)
+
+        return args
+
+    else:
+        parser = argparse.ArgumentParser(
+            description="Train ResNet50 on MNIST or CIFAR-10 with combined loss"
+        )
+        parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+        parser.add_argument("--alpha", type=float, default=1, help="Alpha param")
+        parser.add_argument("--config", type=str, default=None, help="Path to YAML config")
+        parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
+        parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+        parser.add_argument("--margin", type=float, default=8, help="Margin for contrastive kernel loss")
+        parser.add_argument("--model", type=str, default="resnet50", help="Model architecture")
+        parser.add_argument("--resume", type=str, default="", help="Checkpoint to resume from")
+        parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
+        parser.add_argument("--dataset", type=str, choices=["mnist", "cifar10"], default="mnist",
+                            help="Dataset to use ('mnist' or 'cifar10')")
+        parser.add_argument("--contrastive_kernel_loss", action="store_true", help="Use contrastive kernel loss")
+
+        args = parser.parse_args()
+
+        if args.config and os.path.exists(args.config):
+            with open(args.config, "r") as f:
+                config_dict = yaml.safe_load(f)
+            for key, value in config_dict.items():
+                if hasattr(args, key):
+                    setattr(args, key, value)
+
+        return args
 
 def select_random_kernels(kernel_list, k):
     """
