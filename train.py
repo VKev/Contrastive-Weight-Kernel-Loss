@@ -9,11 +9,13 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from util import (
     transform_mnist,
-    transform_cifar10,
+    transform_cifar10_train,
     transform_mnist_224,
     ContrastiveKernelLoss,
     get_kernel_weight_matrix,
 )
+from sklearn.model_selection import StratifiedShuffleSplit
+from torch.utils.data import Subset
 from model import ResNet50, LeNet5
 from torchvision import models
 import random
@@ -192,13 +194,21 @@ def validate(model, val_loader, cls_criterion, kernel_loss_fn, device, args):
                     )
                     if filtered_kernels is not None:
                         kernel_list.append(filtered_kernels)
-            kernel_loss = (
+            if args.mode.lower() == 'random-sampling':
+                kernel_list = select_random_kernels(kernel_list, k = 12)
+                kernel_loss = (
+                kernel_loss_fn(kernel_list)
+                if kernel_list
+                else torch.tensor(0.0, device=device)
+                )
+            else:
+                kernel_loss = (
                 kernel_loss_fn(kernel_list)
                 if kernel_list
                 else torch.tensor(0.0, device=device)
             )
             if args.contrastive_kernel_loss:
-                loss = cls_loss + kernel_loss
+                loss = cls_loss + args.alpha*kernel_loss
             else:
                 loss = cls_loss
             total_val_loss += loss.item()
@@ -218,7 +228,6 @@ def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Select dataset based on args.dataset
     if args.dataset == "mnist":
         if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
             transform = transform_mnist_224
@@ -229,21 +238,22 @@ def main():
         )
     elif args.dataset == "cifar10":
         full_dataset = datasets.CIFAR10(
-            root="./data", train=True, transform=transform_cifar10, download=True
+            root="./data", train=True, transform=transform_cifar10_train, download=True
         )
 
-    dataset_size = len(full_dataset)
-    train_size = int(0.9 * dataset_size)
-    val_size = dataset_size - train_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    labels = [full_dataset[i][1] for i in range(len(full_dataset))]
+
+    split = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
+
+    for train_idx, val_idx in split.split(range(len(full_dataset)), labels):
+        train_dataset = Subset(full_dataset, train_idx)
+        val_dataset = Subset(full_dataset, val_idx)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=16)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16)
 
-    # Determine the number of channels based on dataset
     channels = 3 if args.dataset == "cifar10" else 1
 
-    # Model initialization
     if args.model.lower() == "resnet50":
         model = ResNet50(num_classes=10, channels=channels).to(device)
     elif args.model.lower() == "vgg16":
@@ -258,7 +268,7 @@ def main():
         else:
             raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
     elif args.model.lower() == "googlenet":
-        googlenet = models.googlenet(pretrained=False, num_classes=10,aux_logits=False)
+        googlenet = models.googlenet(weights=None, num_classes=10,aux_logits=False)
         if channels == 1:
             googlenet.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         model = googlenet.to(device)
@@ -270,7 +280,10 @@ def main():
             print(f"{name} is frozen")
     contrastive_loss_fn = ContrastiveKernelLoss(margin=args.margin)
     classification_criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    if args.model.lower() == "googlenet" or args.model.lower() == "resnet50":
+        optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2, betas=(0.9, 0.999), eps=1e-8)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # Resume from checkpoint if provided.
     start_epoch = 0

@@ -4,7 +4,7 @@ import torch.nn as nn
 from torchvision import datasets
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from util import transform_mnist, transform_cifar10,transform_mnist_224
+from util import transform_mnist, transform_cifar10_test,transform_mnist_224
 from model import ResNet50
 from torchvision.models import vgg16
 from model import ResNet50, LeNet5
@@ -84,7 +84,7 @@ def main():
         )
     elif args.dataset == "cifar10":
         test_dataset = datasets.CIFAR10(
-            root="./data", train=False, transform=transform_cifar10, download=True
+            root="./data", train=False, transform=transform_cifar10_test, download=True
         )
 
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers = 8)
