@@ -56,7 +56,7 @@ def parse_args():
                 for key, value in config_dict.items():
                     if hasattr(args, key):
                         setattr(args, key, value)
-
+        
         return args
 
     else:
@@ -85,7 +85,7 @@ def parse_args():
             for key, value in config_dict.items():
                 if hasattr(args, key):
                     setattr(args, key, value)
-
+        
         return args
 
 def select_random_kernels(kernel_list, k):
@@ -224,6 +224,7 @@ def validate(model, val_loader, test_loader,cls_criterion, kernel_loss_fn, devic
 
 def main():
     args = parse_args()
+    print(vars(args))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.dataset == "mnist":
@@ -350,6 +351,26 @@ def main():
         if test_accuracy > best_test_accuracy:
             best_test_accuracy = test_accuracy
             best_test_epoch = epoch + 1
+            if args.contrastive_kernel_loss:
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, f"{args.model}-margin{int(args.margin)}-{args.dataset}-e{epoch+1}.pth"
+                )
+            else:
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, f"{args.model}-base-{args.dataset}-e{epoch+1}.pth"
+                )
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "val_accuracy": val_accuracy,
+                    "args": vars(args),
+                },
+                checkpoint_path,
+            )
         
         print('Best test accuracy: ',best_test_accuracy, '(epoch: ', best_test_epoch, ')')
 

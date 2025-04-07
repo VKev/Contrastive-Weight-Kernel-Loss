@@ -6,9 +6,7 @@ This repository implements the **Contrastive Kernel Loss** (CKL) for training mo
 
 The Contrastive Kernel Loss is defined as:
 
-$$
-\mathcal{L}_{CK} = \frac{1}{L} \sum_{\ell=1}^{L} \frac{1}{N_{\ell}(N_{\ell} - 1)} \sum_{i,j=1, i \neq j}^{N_{\ell}} \text{max} \left( 0, \text{margin} - \| I_{\ell} - \left( K_{\ell}^{(i)} \right)^{-1} K_{\ell}^{(j)} \|_F \right)
-$$
+![Contrastive Kernel Loss](images/loss.png)
 
 Where:
 
@@ -20,32 +18,55 @@ Where:
 
 ## CIFAR-10 Results
 
-googlenet-base-cifar10-e200.pth  84.31%
-googlenet-margin2-cifar10-e150.pth  **84.63%** alpha 0.15 
-googlenet-margin4-cifar10-e118.pth  **84.55%** alpha 0.1
-googlenet-margin6-cifar10-e200.pth  **84.34%** alpha 0.15 
-googlenet-margin8-cifar10-e200.pth  84.12% alpha 0.1 
-googlenet-margin10-cifar10-e200.pth  **84.34%** alpha 0.1 
+| Model     | Accuracy          | Margin | Alpha |
+| --------- | ----------------- | ------ | ----- |
+| googlenet | 84.16%            | -      | -     |
+| googlenet | <u>**84.70%**<\u> | 2      | 1     |
+| googlenet | **84.55%**        | 4      | 0.10  |
+| googlenet | **84.34%**        | 6      | 0.15  |
+| googlenet | 84.12%            | 8      | 0.10  |
+| googlenet | **84.34%**        | 10     | 0.10  |
 
+---
 
-### VGG16 on MNIST
+### MNIST Results
 
-| Model                | Acc@1      | Margin | Alpha |
-|----------------------|------------|--------|-------|
-| vgg16-base-mnist     | 99.43%     | -      | -     |
-| vgg16-margin2-mnist  | **99.45%** | 2      | 1     |
-| vgg16-margin4-mnist  | **99.44%** | 4      | 1     |
-| vgg16-margin6-mnist  | 99.41%     | 6      | 1     |
-| vgg16-margin8-mnist  | **99.50%** | 8      | 1     |
-| vgg16-margin10-mnist | <u>**99.51%**</u> | 10     | 1     |
+| Model | Accuracy          | Margin | Alpha |
+| ----- | ----------------- | ------ | ----- |
+| vgg16 | 99.43%            | -      | -     |
+| vgg16 | **99.45%**        | 2      | 1     |
+| vgg16 | **99.44%**        | 4      | 1     |
+| vgg16 | 99.41%            | 6      | 1     |
+| vgg16 | **99.50%**        | 8      | 1     |
+| vgg16 | <u>**99.51%**</u> | 10     | 1     |
 
-### LeNet on MNIST
+---
 
-| Model           | Accuracy          | Margin | Alpha |
-|-----------------|-------------------|--------|-------|
-| LeNet           | 98.85%            | -      | -     |
-| LeNet Margin 2  | **98.93%**        | 2      | 0.1   |
-| LeNet Margin 4  | **98.96%**        | 4      | 0.1   |
-| LeNet Margin 6  | <u>**99.01%**</u> | 6      | 0.05  |
-| LeNet Margin 8  | **98.93%**        | 8      | 0.05  |
-| LeNet Margin 10 | **98.98%**        | 10     | 0.025 |
+| Model | Accuracy          | Margin | Alpha |
+| ----- | ----------------- | ------ | ----- |
+| LeNet | 98.85%            | -      | -     |
+| LeNet | **98.93%**        | 2      | 0.1   |
+| LeNet | **98.96%**        | 4      | 0.1   |
+| LeNet | <u>**99.01%**</u> | 6      | 0.05  |
+| LeNet | **98.93%**        | 8      | 0.05  |
+| LeNet | **98.98%**        | 10     | 0.025 |
+
+## Training and Testing
+
+To start training a model using a specific configuration file, margin, alpha value, and mode, use the following command:
+
+```bash
+python train.py --config config/googlenet-cifar10-ckl.yaml --margin 2 --alpha 0.15 --mode random-sampling
+```
+
+To resume training from a previously saved checkpoint, use:
+
+```bash
+python train.py --resume checkpoint/name_of_checkpoint.pth
+```
+
+To evaluate a trained model on the test dataset, use the following command:
+
+```bash
+python test.py --checkpoint checkpoint/name_of_checkpoint.pth --dataset cifar10 --model googlenet
+```
