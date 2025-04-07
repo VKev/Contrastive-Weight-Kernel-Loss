@@ -20,6 +20,7 @@ from torch.utils.data import Subset
 from model import ResNet50, LeNet5
 from torchvision import models
 import random
+from test import test
 
 def parse_args():
     mini_parser = argparse.ArgumentParser(add_help=False)
@@ -73,6 +74,7 @@ def parse_args():
         parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
         parser.add_argument("--dataset", type=str, choices=["mnist", "cifar10"], default="mnist",
                             help="Dataset to use ('mnist' or 'cifar10')")
+        parser.add_argument('--save_every', type=int, default=10, help='Save checkpoint every n epochs')
         parser.add_argument("--contrastive_kernel_loss", action="store_true", help="Use contrastive kernel loss")
 
         args = parser.parse_args()
@@ -128,14 +130,11 @@ def train_epoch(
         cls_loss = cls_criterion(outputs, labels)
 
         # Extract conv kernels and compute contrastive kernel loss.
-        kernel_list = []
-        for module in model.modules():
-            if isinstance(module, nn.Conv2d):
-                filtered_kernels = get_kernel_weight_matrix(
-                    module.weight, ignore_sizes=[1]
-                )
-                if filtered_kernels is not None:
-                    kernel_list.append(filtered_kernels)
+        kernel_list = [
+            get_kernel_weight_matrix(module.weight, ignore_sizes=[1])
+            for module in model.modules() if isinstance(module, nn.Conv2d)
+        ]
+        kernel_list = [k for k in kernel_list if k is not None]
         
         # kernel_list = [kernel_list[0], kernel_list[2], kernel_list[4], kernel_list[6]]
         if args.mode.lower() == 'random-sampling':
@@ -171,7 +170,7 @@ def train_epoch(
     return avg_loss
 
 
-def validate(model, val_loader, cls_criterion, kernel_loss_fn, device, args):
+def validate(model, val_loader, test_loader,cls_criterion, kernel_loss_fn, device, args):
     model.eval()
     total_val_loss = 0.0
     correct = 0
@@ -218,8 +217,9 @@ def validate(model, val_loader, cls_criterion, kernel_loss_fn, device, args):
     avg_loss = total_val_loss / len(val_loader)
     accuracy = correct / total
     print(f"Validation Loss: {avg_loss:.4f}, Accuracy: {accuracy*100:.2f}%")
+    test_accuracy = test(model, test_loader, device)
     model.train()
-    return avg_loss, accuracy
+    return avg_loss, accuracy, test_accuracy
 
 
 def main():
@@ -238,6 +238,20 @@ def main():
         full_dataset = datasets.CIFAR10(
             root="./data", train=True, transform=transform_cifar10_train, download=True
         )
+        
+    if args.dataset == "mnist":
+        if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
+            transform = transform_mnist_224
+        else:
+            transform = transform_mnist
+        test_dataset = datasets.MNIST(
+            root="./data", train=False, transform=transform, download=True
+        )
+    elif args.dataset == "cifar10":
+        test_dataset = datasets.CIFAR10(
+            root="./data", train=False, transform=transform_cifar10_test, download=True
+        )
+
 
     labels = [full_dataset[i][1] for i in range(len(full_dataset))]
 
@@ -249,6 +263,7 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=16)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers = 8)
 
     channels = 3 if args.dataset == "cifar10" else 1
 
@@ -309,7 +324,8 @@ def main():
                 kernel_list.append(filtered_kernels)
     
     print("Conv layers num: ", len(kernel_list))
-    
+    best_test_accuracy = 0.0
+    best_test_epoch = 0
     for epoch in range(start_epoch, args.num_epochs):
         print(f"Epoch {epoch+1}/{args.num_epochs}")
         train_loss = train_epoch(
@@ -322,37 +338,43 @@ def main():
             args,
         )
         print(f"Epoch {epoch+1} Train Loss: {train_loss:.4f}")
-        val_loss, val_accuracy = validate(
+        val_loss, val_accuracy, test_accuracy = validate(
             model,
             val_loader,
+            test_loader,
             classification_criterion,
             contrastive_loss_fn,
             device,
             args,
         )
+        if test_accuracy > best_test_accuracy:
+            best_test_accuracy = test_accuracy
+            best_test_epoch = epoch + 1
+        
+        print('Best test accuracy: ',best_test_accuracy, '(epoch: ', best_test_epoch, ')')
 
-        # Save checkpoint for current epoch.
-        if args.contrastive_kernel_loss:
-            checkpoint_path = os.path.join(
-                checkpoint_dir, f"{args.model}-margin{int(args.margin)}-{args.dataset}-e{epoch+1}.pth"
+        if (epoch + 1) % args.save_every == 0:
+            if args.contrastive_kernel_loss:
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, f"{args.model}-margin{int(args.margin)}-{args.dataset}-e{epoch+1}.pth"
+                )
+            else:
+                checkpoint_path = os.path.join(
+                    checkpoint_dir, f"{args.model}-base-{args.dataset}-e{epoch+1}.pth"
+                )
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "val_accuracy": val_accuracy,
+                    "args": vars(args),
+                },
+                checkpoint_path,
             )
-        else:
-            checkpoint_path = os.path.join(
-            checkpoint_dir, f"{args.model}-base-{args.dataset}-e{epoch+1}.pth"
-            )
-        torch.save(
-            {
-                "epoch": epoch + 1,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "val_accuracy": val_accuracy,
-                "args": vars(args),
-            },
-            checkpoint_path,
-        )
-        print(f"Checkpoint saved to {checkpoint_path}")
+            print(f"Checkpoint saved to {checkpoint_path}")
 
 
 if __name__ == "__main__":

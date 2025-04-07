@@ -67,7 +67,7 @@ def test(model, test_loader, device):
     avg_loss = test_loss / len(test_loader)
     accuracy = 100.0 * correct / total
     print(f"Test Loss: {avg_loss:.4f}, Test Accuracy: {accuracy:.2f}%")
-
+    return accuracy
 
 def main():
     args = parse_args()

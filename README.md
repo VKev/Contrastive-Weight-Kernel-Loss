@@ -20,8 +20,12 @@ Where:
 
 ## CIFAR-10 Results
 
-resnet50-base-cifar10-e200  84.49%
 googlenet-base-cifar10-e200.pth  84.31%
+googlenet-margin2-cifar10-e150.pth  **84.63%** alpha 0.15 
+googlenet-margin4-cifar10-e118.pth  **84.55%** alpha 0.1
+googlenet-margin6-cifar10-e200.pth  **84.34%** alpha 0.15 
+googlenet-margin8-cifar10-e200.pth  84.12% alpha 0.1 
+googlenet-margin10-cifar10-e200.pth  **84.34%** alpha 0.1 
 
 
 ### VGG16 on MNIST
