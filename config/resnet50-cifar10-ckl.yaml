@@ -1,0 +1,6 @@
+dataset: cifar10
+model: resnet50
+batch_size: 256
+contrastive_kernel_loss: true
+lr: 0.0005
+num_epochs: 150

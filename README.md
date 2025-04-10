@@ -18,38 +18,47 @@ Where:
 
 ## CIFAR-10 Results
 
-| Model     | Accuracy          | Margin | Alpha |
-| --------- | ----------------- | ------ | ----- |
-| googlenet | 84.16%            | -      | -     |
-| googlenet | <u>**84.70%**<\u> | 2      | 1     |
-| googlenet | **84.55%**        | 4      | 0.10  |
-| googlenet | **84.34%**        | 6      | 0.15  |
-| googlenet | 84.12%            | 8      | 0.10  |
-| googlenet | **84.34%**        | 10     | 0.10  |
+| Model     | Accuracy          | Margin | Alpha | Injection Method |
+| --------- | ----------------- | ------ | ----- | ---------------- |
+| googlenet | 84.16%            | -      | -     | -                |
+| googlenet | <u>**84.70%**</u> | 2      | 1     | full-layer       |
+| googlenet | **84.59%**        | 4      | 0.5   | full-layer       |
+| googlenet | **84.29%**        | 6      | 0.5   | full-layer       |
+| googlenet | 84.12%            | 8      | 0.1   | full-layer       |
+| googlenet | **84.34%**        | 10     | 0.1   | full-layer       |
 
 ---
+
+| Model    | Accuracy         | Margin | Alpha | Injection Method |
+| -------- | ---------------- | ------ | ----- | ---------------- |
+| resnet50 | 84.89            | -      | -     | -                |
+| resnet50 | **85.09**        | 2      | 0.5   | random-sampling  |
+| resnet50 | **85.24**        | 4      | 0.3   | random-sampling  |
+| resnet50 | **85.01**        | 6      | 0.25  | random-sampling  |
+| resnet50 | **85.03**        | 8      | 0.15  | random-sampling  |
+| resnet50 | <u>**85.29**</u> | 10     | 0.1   | random-sampling  |
 
 ### MNIST Results
 
-| Model | Accuracy          | Margin | Alpha |
-| ----- | ----------------- | ------ | ----- |
-| vgg16 | 99.43%            | -      | -     |
-| vgg16 | **99.45%**        | 2      | 1     |
-| vgg16 | **99.44%**        | 4      | 1     |
-| vgg16 | 99.41%            | 6      | 1     |
-| vgg16 | **99.50%**        | 8      | 1     |
-| vgg16 | <u>**99.51%**</u> | 10     | 1     |
+| Model | Accuracy          | Margin | Alpha | Injection Method |
+| ----- | ----------------- | ------ | ----- | ---------------- |
+| vgg16 | 99.43%            | -      | -     | -                |
+| vgg16 | **99.45%**        | 2      | 1     | full-layer       |
+| vgg16 | **99.44%**        | 4      | 1     | full-layer       |
+| vgg16 | 99.41%            | 6      | 1     | full-layer       |
+| vgg16 | **99.50%**        | 8      | 1     | full-layer       |
+| vgg16 | <u>**99.51%**</u> | 10     | 1     | full-layer       |
 
 ---
 
-| Model | Accuracy          | Margin | Alpha |
-| ----- | ----------------- | ------ | ----- |
-| LeNet | 98.85%            | -      | -     |
-| LeNet | **98.93%**        | 2      | 0.1   |
-| LeNet | **98.96%**        | 4      | 0.1   |
-| LeNet | <u>**99.01%**</u> | 6      | 0.05  |
-| LeNet | **98.93%**        | 8      | 0.05  |
-| LeNet | **98.98%**        | 10     | 0.025 |
+| Model | Accuracy          | Margin | Alpha | Injection Method |
+| ----- | ----------------- | ------ | ----- | ---------------- |
+| LeNet | 98.85%            | -      | -     | -                |
+| LeNet | **98.93%**        | 2      | 0.1   | full-layer       |
+| LeNet | **98.96%**        | 4      | 0.1   | full-layer       |
+| LeNet | <u>**99.01%**</u> | 6      | 0.05  | full-layer       |
+| LeNet | **98.93%**        | 8      | 0.05  | full-layer       |
+| LeNet | **98.98%**        | 10     | 0.025 | full-layer       |
 
 ## Training and Testing
 
