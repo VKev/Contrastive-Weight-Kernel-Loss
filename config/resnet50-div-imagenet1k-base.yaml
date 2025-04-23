@@ -1,0 +1,7 @@
+dataset: imagenet1k
+model: resnet50_diversified
+batch_size: 32
+contrastive_kernel_loss: False
+lr: 0.0005
+num_epochs: 150
+margin: 0

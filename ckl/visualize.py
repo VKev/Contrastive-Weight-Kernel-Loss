@@ -86,6 +86,8 @@ def visualize_kernel_similarity(kernels, eps=1e-8, margin=1.0):
     # Compute the Frobenius norm of the differences for each pair.
     diff_norm_AB = torch.linalg.norm(diff_AB, dim=(2, 3))  # shape: (n, n)
     diff_norm_BA = torch.linalg.norm(diff_BA, dim=(2, 3))  # shape: (n, n)
+    # diff_norm_AB = torch.maximum(diff_norm_AB, torch.tensor(0.0))
+    # diff_norm_BA = torch.maximum(diff_norm_BA, torch.tensor(0.0))
     
     # Combine the two differences (for lower triangle and upper triangle).
     combined_diff_norm = torch.tril(diff_norm_AB) + torch.triu(diff_norm_BA)  # Combine lower and upper triangles

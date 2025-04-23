@@ -1,121 +1,65 @@
+import yaml
 import argparse
-import torch
-import torch.nn as nn
-from torchvision import datasets
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-from util import transform_mnist, transform_cifar10_test,transform_mnist_224
-from model import ResNet50
-from torchvision.models import vgg16
-from model import ResNet50, LeNet5
-from torchvision import models
+import os
+import pytorch_lightning as pl
+from train import parse_args, Model, DataModule
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Test ResNet50 on MNIST or CIFAR-10 dataset"
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=16,
-        help="Batch size for testing (default: 128)",
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=r"./checkpoint/vgg16-margin4-mnist-e15.pth",
-        help="Path to the model checkpoint",
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        choices=["mnist", "cifar10"],
-        default="mnist",
-        help="Dataset to use for testing ('mnist' or 'cifar10')",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="resnet50",
-        help="Architecture to use (default: resnet50)",
-    )
-    return parser.parse_args()
+    parser = argparse.ArgumentParser(description="Train model with PyTorch Lightning")
+    parser.add_argument("--config", type=str, default=None, help="Path to YAML config")
+    parser.add_argument("--resume", type=str, default="", help="Checkpoint path to resume from")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--alpha", type=float, default=1, help="Alpha parameter")
+    parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--margin", type=float, default=8, help="Margin for contrastive loss")
+    parser.add_argument("--model", type=str, default="resnet50", help="Model architecture")
+    parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
+    parser.add_argument("--dataset", choices=["mnist", "cifar10"], default="mnist", help="Dataset to use")
+    parser.add_argument("--save_every", type=int, default=10, help="Save checkpoint every n epochs")
+    parser.add_argument("--contrastive_kernel_loss", action="store_true", help="Use contrastive kernel loss")
+    parser.add_argument("--wandb", action="store_true", help="Use WandB logging")
+    parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
+    parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping")
 
-
-def test(model, test_loader, device):
-    model.eval()
-    correct = 0
-    total = 0
-    criterion = nn.CrossEntropyLoss()
-    test_loss = 0.0
-
-    progress_bar = tqdm(test_loader, desc="Testing", unit="batch")
-    with torch.no_grad():
-        for images, labels in progress_bar:
-            images = images.to(device)
-            labels = labels.to(device)
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            test_loss += loss.item()
-
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-            progress_bar.set_postfix({"Batch Loss": loss.item()})
-
-    avg_loss = test_loss / len(test_loader)
-    accuracy = 100.0 * correct / total
-    print(f"Test Loss: {avg_loss:.4f}, Test Accuracy: {accuracy:.2f}%")
-    return accuracy
+    args = parser.parse_args()
+    
+    if args.config and os.path.exists(args.config):
+        with open(args.config, "r") as f:
+            config = yaml.safe_load(f)
+        for key, value in config.items():
+            setattr(args, key, value)
+    
+    return args
 
 def main():
     args = parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Select dataset based on args.dataset
-    if args.dataset == "mnist":
-        if args.model.lower() == "resnet50" or args.model.lower() == "vgg16" or args.model.lower() == "googlenet":
-            transform = transform_mnist_224
-        else:
-            transform = transform_mnist
-        test_dataset = datasets.MNIST(
-            root="./data", train=False, transform=transform, download=True
-        )
-    elif args.dataset == "cifar10":
-        test_dataset = datasets.CIFAR10(
-            root="./data", train=False, transform=transform_cifar10_test, download=True
-        )
+    model = Model.load_from_checkpoint(
+        checkpoint_path=args.resume,
+        args=args
+    )
+    model.eval()
 
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers = 8)
-    channels = 3 if args.dataset == "cifar10" else 1
-    if args.model.lower() == "resnet50":
-        model = ResNet50(num_classes=10, channels=channels).to(device)
-    elif args.model.lower() == "vgg16":
-        vgg = models.vgg16(weights=None)
-        if channels == 1:
-            vgg.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
-        vgg.classifier[6] = nn.Linear(4096, 10)
-        model = vgg.to(device)
-    elif args.model.lower() == "lenet5":
-        if channels == 1:
-            model = LeNet5().to(device)
-        else:
-            raise ValueError(f"{args.model} only support input image 1 channel: {args.model}")
-    elif args.model.lower() == "googlenet":
-        googlenet = models.googlenet(weights=None, num_classes=10,aux_logits=False)
-        if channels == 1:
-            googlenet.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        model = googlenet.to(device)
-    else:
-        raise ValueError(f"Unsupported model architecture: {args.model}")
+    dm = DataModule(args)
+    dm.prepare_data()
+    dm.setup(stage="test")   # will populate dm.test_dataset
 
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    print(f"Loaded checkpoint from '{args.checkpoint}'")
+    if args.batch_size is not None:
+        dm.batch_size = args.batch_size
 
-    test(model, test_loader, device)
+    trainer = pl.Trainer(
+        accelerator="auto",
+        devices="auto",
+        logger=False,            # disable logging
+        enable_progress_bar=True
+    )
 
+    test_results = trainer.test(model=model, datamodule=dm)
+
+    print("▶︎ Final test results:")
+    for res in test_results:
+        print(res)
 
 if __name__ == "__main__":
     main()
