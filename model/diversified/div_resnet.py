@@ -10,7 +10,7 @@ class Bottleneck(nn.Module):
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
         self.batch_norm1 = nn.BatchNorm2d(out_channels)
         
-        self.conv2 = DiversifiedConv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, k=24, similarity_mode="cosine")
+        self.conv2 = DiversifiedConv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, k=24, similarity_mode="cosine", div_factor=3)
         self.batch_norm2 = nn.BatchNorm2d(out_channels)
         
         self.conv3 = nn.Conv2d(out_channels, out_channels*self.expansion, kernel_size=1, stride=1, padding=0)
@@ -38,15 +38,15 @@ class Bottleneck(nn.Module):
         
         return x
 
-class ResNet(nn.Module):
+class DiversifiedResNet(nn.Module):
     def __init__(self, ResBlock, layer_list, num_classes, num_channels=3):
-        super(ResNet, self).__init__()
+        super(DiversifiedResNet, self).__init__()
         self.in_channels = 64
         
-        self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.batch_norm1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU()
-        self.max_pool = nn.MaxPool2d(kernel_size = 3, stride=2, padding=1)
+        # self.max_pool = nn.MaxPool2d(kernel_size = 3, stride=2, padding=1)
         
         self.layer1 = self._make_layer(ResBlock, layer_list[0], planes=64)
         self.layer2 = self._make_layer(ResBlock, layer_list[1], planes=128, stride=2)
@@ -58,7 +58,7 @@ class ResNet(nn.Module):
         
     def forward(self, x):
         x = self.relu(self.batch_norm1(self.conv1(x)))
-        x = self.max_pool(x)
+        # x = self.max_pool(x)
 
         x = self.layer1(x)
         x = self.layer2(x)
@@ -89,11 +89,11 @@ class ResNet(nn.Module):
             
         return nn.Sequential(*layers)
 
-def ResNet50(num_classes, channels=3):
-    return ResNet(Bottleneck, [3,4,6,3], num_classes, channels)
+def DiversifiedResNet50(num_classes, channels=3):
+    return DiversifiedResNet(Bottleneck, [3,4,6,3], num_classes, channels)
     
-def ResNet101(num_classes, channels=3):
-    return ResNet(Bottleneck, [3,4,23,3], num_classes, channels)
+def DiversifiedResNet101(num_classes, channels=3):
+    return DiversifiedResNet(Bottleneck, [3,4,23,3], num_classes, channels)
 
-def ResNet152(num_classes, channels=3):
-    return ResNet(Bottleneck, [3,8,36,3], num_classes, channels)
+def DiversifiedResNet152(num_classes, channels=3):
+    return DiversifiedResNet(Bottleneck, [3,8,36,3], num_classes, channels)

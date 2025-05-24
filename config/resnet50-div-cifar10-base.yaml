@@ -1,7 +1,0 @@
-dataset: cifar10
-model: resnet50_diversified
-batch_size: 128
-contrastive_kernel_loss: False
-lr: 0.1
-num_epochs: 300
-margin: 0

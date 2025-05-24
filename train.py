@@ -16,7 +16,7 @@ import warnings
 import shutil
 from sklearn.model_selection import train_test_split
 import numpy as np
-import wandb        
+import wandb
 torch.set_float32_matmul_precision('high')
 from util import (
     transform_mnist,
@@ -29,7 +29,7 @@ from util import (
     transform_imagenet_val,
 )
 from model import ResNet50, LeNet5
-from model.diversified.div_resnet import ResNet50 as ResNet50Diversified
+from model.diversified.div_resnet import DiversifiedResNet50
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -68,6 +68,9 @@ class DataModule(pl.LightningDataModule):
             self.test_dataset = datasets.CIFAR10(
                 root="./data", train=False, transform=transform_cifar10_test
             )
+        elif self.dataset == "cifar100":
+            full_dataset = datasets.CIFAR100(root="./data", train=True, transform=transform_cifar10_train, download=True)
+            self.test_dataset = datasets.CIFAR100(root="./data", train=False, transform=transform_cifar10_test, download=True)
         elif self.dataset == "imagenet1k":
             full_dataset = datasets.ImageNet(
                 root=r"D:\AI\Dataset\ImageNet1k",
@@ -85,9 +88,9 @@ class DataModule(pl.LightningDataModule):
 
         train_idx, val_idx = train_test_split(
                 np.arange(len(full_dataset)),
-                test_size=1.0 - split,        # same `split` you used before (e.g. 0.8)
-                stratify=labels,              # <- key line: keep class ratios
-                random_state=42)              # reproducible
+                test_size=1.0 - split,
+                stratify=labels,
+                random_state=42)
 
         self.train_dataset = Subset(full_dataset, train_idx)
         self.val_dataset   = Subset(full_dataset, val_idx)
@@ -98,25 +101,26 @@ class DataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            persistent_workers=True if self.num_workers > 0 else False
         )
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
+        common_kwargs = dict(
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            persistent_workers=True if self.num_workers > 0 else False
         )
 
+        val_loader  = DataLoader(self.val_dataset,  **common_kwargs)
+        test_loader = DataLoader(self.test_dataset, **common_kwargs)
+
+        return [val_loader, test_loader]
+    
     def test_dataloader(self):
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            persistent_workers=True if self.num_workers > 0 else False
         )
 
 class Model(pl.LightningModule):
@@ -125,25 +129,29 @@ class Model(pl.LightningModule):
         self.save_hyperparameters(vars(args))
         self.args = args
         
-        channels = 3 if args.dataset in ["cifar10","imagenet1k"] else 1
-        self.num_classes = 1000 if args.dataset in ["imagenet1k"] else 10
+        channels = 3 if args.dataset in ["cifar10","cifar100","imagenet1k"] else 1
+        self.num_classes = 10 
+        if args.dataset in ["imagenet1k"]:
+            self.num_classes = 1000
+        elif args.dataset in ["cifar100"]:
+            self.num_classes = 100
         
         if args.model.lower() == "resnet50":
             self.model = ResNet50(num_classes=self.num_classes, channels=channels)
         elif args.model.lower() == "resnet50_diversified":
-            self.model = ResNet50Diversified(num_classes=self.num_classes, channels=channels)
+            self.model = DiversifiedResNet50(num_classes=self.num_classes, channels=channels)
         elif args.model.lower() == "vgg16":
             self.model = models.vgg16(weights=None)
             if channels == 1:
                 self.model.features[0] = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1)
-            self.model.classifier[6] = nn.Linear(4096, 10)
+            self.model.classifier[6] = nn.Linear(4096, self.num_classes)
         elif args.model.lower() == "lenet5":
             if channels == 1:
                 self.model = LeNet5()
             else:
                 raise ValueError(f"{args.model} only supports 1 channel input")
         elif args.model.lower() == "googlenet":
-            self.model = models.googlenet(weights=None, num_classes=10, aux_logits=False)
+            self.model = models.googlenet(weights=None, num_classes=self.num_classes, aux_logits=False)
             if channels == 1:
                 self.model.conv1.conv = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         else:
@@ -173,7 +181,7 @@ class Model(pl.LightningModule):
                 self.parameters(),
                 lr=self.args.lr,
                 momentum=0.9,
-                weight_decay=1e-4
+                weight_decay=5e-4
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -184,6 +192,11 @@ class Model(pl.LightningModule):
                 verbose=True
             )
 
+            # scheduler = optim.lr_scheduler.MultiStepLR(
+            #     optimizer,
+            #     milestones=[150, 225, 270],
+            #     gamma=0.1
+            # )
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
@@ -253,7 +266,6 @@ class Model(pl.LightningModule):
         return total_loss
 
     def on_train_epoch_end(self):
-        # Calculate average losses for the epoch
         avg_total_loss = torch.stack([x for x in self._train_losses['total_loss']]).mean()
         
         # Log average losses
@@ -262,52 +274,53 @@ class Model(pl.LightningModule):
         # Clear stored losses
         self._train_losses = {'total_loss': []}
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx: int = 0):
         x, y = batch
         logits = self(x)
-        
+
         cls_loss = self.cls_criterion(logits, y)
-        
         if self.hparams['contrastive_kernel_loss']:
             kernel_list = self._get_kernel_list()
             if self.hparams['mode'].lower() == "random-sampling":
-                kernel_list = self._select_random_kernels(kernel_list, k=12)
-            
+                kernel_list = self._select_random_kernels(kernel_list, k=24)
             kernel_loss = self.kernel_loss_fn(kernel_list) if kernel_list else torch.tensor(0.0, device=self.device)
         else:
-            kernel_loss = 0
-            
-        total_loss = cls_loss
-        if self.hparams['contrastive_kernel_loss']:
-            total_loss = total_loss + self.hparams['alpha'] * kernel_loss
-        
-        # Calculate predictions for accuracy
+            kernel_loss = 0.0
+
+        total_loss = cls_loss + (self.hparams['alpha'] * kernel_loss if self.hparams['contrastive_kernel_loss'] else 0.0)
+
         preds = torch.argmax(logits, dim=1)
-        
-        # Store losses and predictions for epoch-end logging
-        if not hasattr(self, '_val_losses'):
-            self._val_losses = {'total_loss': [], 'cls_loss': [], 'kernel_loss': [], 'preds': [], 'labels': []}
-        self._val_losses['total_loss'].append(total_loss)
-        self._val_losses['preds'].append(preds)
-        self._val_losses['labels'].append(y)
-        
-        self.log("val/loss", total_loss, on_step=True, on_epoch=False)
-        
-        return {"val_loss": total_loss}
+
+        # ---- book-keeping per split ---------------------------------------
+        split = "val" if dataloader_idx == 0 else "test"
+        if not hasattr(self, "_stats"):
+            self._stats = {s: {"loss": [], "preds": [], "labels": []} for s in ("val", "test")}
+
+        self._stats[split]["loss"].append(total_loss)
+        self._stats[split]["preds"].append(preds)
+        self._stats[split]["labels"].append(y)
+
+        # log batch loss
+        self.log(f"{split}/loss", total_loss, on_step=True, on_epoch=False)
+
+        return {"loss": total_loss, "split": split}
 
     def on_validation_epoch_end(self):
-        if self._val_losses['total_loss']:  # Check if there are any losses
-            avg_total_loss = torch.stack([x for x in self._val_losses['total_loss']]).mean()
-            
-            preds = torch.cat([x for x in self._val_losses['preds']])
-            labels = torch.cat([x for x in self._val_losses['labels']])
-            acc = (preds == labels).float().mean()
-            
-            self.log("val/epoch_loss", avg_total_loss, prog_bar=True)
-            self.log("val/epoch_acc", acc, prog_bar=True)
-            self.log("val_acc", acc)
-        
-        self._val_losses = {'total_loss': [], 'cls_loss': [], 'kernel_loss': [], 'preds': [], 'labels': []}
+        for split, buf in self._stats.items():
+            if not buf["loss"]:
+                continue   # this split did not run this epoch
+
+            avg_loss = torch.stack(buf["loss"]).mean()
+            acc = (torch.cat(buf["preds"]) == torch.cat(buf["labels"])).float().mean()
+
+
+            self.log(f"{split}/epoch_loss", avg_loss, prog_bar=False)
+            self.log(f"{split}/epoch_acc",  acc,       prog_bar=True)
+            if split == "test":
+                self.log(f"test_acc", acc, prog_bar=False)
+
+            for k in buf:
+                buf[k].clear()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -384,15 +397,15 @@ def main():
     ModelCheckpoint.CHECKPOINT_NAME_LAST = (
         f"{args.model}-{args.dataset}"
         + ("-ckl" if args.contrastive_kernel_loss else "")
-        + "-{epoch}-{val_acc:.4f}-last"
+        + "-{epoch}-{test_acc:.4f}-last"
     )
     
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoint",
         filename=f"{args.model}-{args.dataset}" + 
                  ("-ckl" if args.contrastive_kernel_loss else "") + 
-                 "-{epoch}-{val_acc:.4f}",
-        monitor="val/epoch_acc",
+                 "-{epoch}-{test_acc:.4f}",
+        monitor="test/epoch_acc",
         mode="max",
         save_top_k=1,
         save_last=True

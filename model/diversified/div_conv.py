@@ -5,10 +5,10 @@ import torch.nn.functional as F
 class DiversifiedConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, k, stride=1,
                  padding=0, dilation=1, groups=1, bias=True,
-                 similarity_mode="cosine"):
+                 similarity_mode="cosine", div_factor = 2):
         super().__init__(in_channels, out_channels, kernel_size, stride,
                          padding, dilation, groups, bias)
-        self.k = max(k, out_channels//3)
+        self.k = max(k, out_channels//div_factor)
         self.push_weights = nn.Parameter(torch.zeros(self.k, self.k))
         
         if similarity_mode not in ["cosine", "identity"]:
