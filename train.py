@@ -28,7 +28,7 @@ from util import (
     transform_imagenet_train,
     transform_imagenet_val,
 )
-from model import ResNet50, LeNet5
+from model import ResNet50, LeNet5, AdaptResNet50
 from model.diversified.div_resnet import DiversifiedResNet50
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -138,6 +138,8 @@ class Model(pl.LightningModule):
         
         if args.model.lower() == "resnet50":
             self.model = ResNet50(num_classes=self.num_classes, channels=channels)
+        elif args.model.lower() == "resnet50_adapt":
+            self.model = AdaptResNet50(num_classes=self.num_classes, channels=channels, hidden_ratio=0.25, input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224) 
         elif args.model.lower() == "resnet50_diversified":
             self.model = DiversifiedResNet50(num_classes=self.num_classes, channels=channels)
         elif args.model.lower() == "vgg16":
@@ -176,7 +178,7 @@ class Model(pl.LightningModule):
                 betas=(0.9, 0.999),
                 eps=1e-8
             )
-        elif self.args.model.lower() in ["resnet50_diversified", "resnet50"]:
+        elif self.args.model.lower() in ["resnet50_diversified", "resnet50", "resnet50_adapt"]:
             optimizer = optim.SGD(
                 self.parameters(),
                 lr=self.args.lr,
@@ -242,7 +244,7 @@ class Model(pl.LightningModule):
             # Calculate kernel loss
             kernel_list = self._get_kernel_list()
             if self.hparams['mode'].lower() == "random-sampling":
-                kernel_list = self._select_random_kernels(kernel_list, k=12)
+                kernel_list = self._select_random_kernels(kernel_list, k=24)
             
             kernel_loss = self.kernel_loss_fn(kernel_list) if kernel_list else torch.tensor(0.0, device=self.device)
         else:
