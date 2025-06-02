@@ -397,11 +397,11 @@ def main():
         if "wandb_id" in hparams:
             args.wandb_id = hparams["wandb_id"]
         
-        # for key, value in hparams.items():
-        #     if key != "resume" and hasattr(args, key) and getattr(args, key) != value:
-        #         print(f"Overriding {key}: {getattr(args, key)} -> {value}")
-        #         setattr(args, key, value)
-        # checkpoint = None
+        for key, value in hparams.items():
+            if key != "resume" and hasattr(args, key) and getattr(args, key) != value:
+                print(f"Overriding {key}: {getattr(args, key)} -> {value}")
+                setattr(args, key, value)
+        checkpoint = None
     else:
         args.wandb_id = wandb.util.generate_id()
         
