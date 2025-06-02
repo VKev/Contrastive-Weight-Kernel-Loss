@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
 class AdaptiveBlock(nn.Module):
-    def __init__(self, channels: int, hidden_ratio: float, height: int, width: int, rank: int = 4, dropout: float = 0.1):
+    def __init__(self, channels: int, hidden_ratio: float, height: int, width: int, rank: int = 8, dropout: float = 0.1):
         """
         AdaptiveBlock with low-rank factorization:
          - Globally pools each channel to a scalar y[b,c]
@@ -44,25 +44,32 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout(p=self.dropout_p),
         )
 
-        # 2) Single Linear to go from length-C → length-(H·r) (applied on (B*C, C) later)
-        self.fc_A = nn.Linear(channels, height * rank, bias=True)
+        self.fc_A = nn.Linear(channels, height * rank, bias=False)
 
-        # 3) Single Linear to go from length-C → length-(r·W)
-        self.fc_B = nn.Linear(channels, rank * width, bias=True)
+        self.fc_B = nn.Linear(channels, rank * width, bias=False)
 
         self.sigmoid = nn.Sigmoid()
         
         for module in self.mlp:
             if isinstance(module, nn.Linear):
-                nn.init.constant_(module.weight, 0.0)
+                nn.init.kaiming_uniform_(module.weight, a=math.sqrt(5))
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0.0)
+        
+        nn.init.kaiming_uniform_(
+            self.fc_A.weight,
+            mode='fan_in',
+            nonlinearity='relu'
+        )
+        nn.init.zeros_(self.fc_A.bias)
 
-        nn.init.constant_(self.fc_A.weight, 0.0)
-        nn.init.constant_(self.fc_A.bias, 1.0)
+        nn.init.kaiming_uniform_(
+            self.fc_B.weight,
+            mode='fan_in',
+            nonlinearity='relu'
+        )
+        nn.init.zeros_(self.fc_B.bias)
 
-        nn.init.constant_(self.fc_B.weight, 0.0)
-        nn.init.constant_(self.fc_B.bias, 1.0)
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
