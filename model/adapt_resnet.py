@@ -64,8 +64,8 @@ class AdaptiveBlock(nn.Module):
             nonlinearity='relu'
         )
         
-        nn.init.constant_(self.fc_A.bias, 2.0)
-        nn.init.constant_(self.fc_B.bias, 2.0)
+        nn.init.constant_(self.fc_A.bias, 1)
+        nn.init.constant_(self.fc_B.bias, 1)
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
