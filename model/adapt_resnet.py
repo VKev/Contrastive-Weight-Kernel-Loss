@@ -31,7 +31,7 @@ class AdaptiveBlock(nn.Module):
         # Shape = (num_positions, C)
         self.pos_emb = nn.Parameter(torch.zeros(num_positions, channels))
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
-        
+
         # 1) MLP that maps (B, C) → (B, C), using GELU + Dropout
         self.mlp = nn.Sequential(
             nn.Linear(channels, hidden_channels, bias=False),
@@ -64,7 +64,6 @@ class AdaptiveBlock(nn.Module):
             nonlinearity='relu'
         )
         nn.init.constant_(self.fc_B.bias, 0.0)
-        
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -95,6 +94,7 @@ class AdaptiveBlock(nn.Module):
         assert C == self.C, f"Got C={C}, expected {self.C}"
         if H != self.H or W != self.W:
             raise RuntimeError(f"Expected spatial=({self.H},{self.W}), got ({H},{W})")
+
         # 1) Global average per‐channel → y ∈ (B, C)
         y = x.mean(dim=[2, 3])  # shape = (B, C)
 
@@ -128,7 +128,6 @@ class AdaptiveBlock(nn.Module):
         return attn_map
 
 
-
 class AdaptBottleneck(nn.Module):
     expansion = 4
 
@@ -159,7 +158,10 @@ class AdaptBottleneck(nn.Module):
 
         self.relu         = nn.ReLU(inplace=True)
         self.i_downsample = i_downsample
-        self.mask_fn      = mask_fn  # this is a lambda(x) that calls shared_ab.forward(x, pos=...)
+        self.mask_fn      = mask_fn  # this is a lambda(x) that calls shared_ab.forward(x, pos)
+
+        # **NEW**: store the last‐forward mask here
+        self.last_mask = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x
@@ -171,11 +173,12 @@ class AdaptBottleneck(nn.Module):
         if self.i_downsample is not None:
             identity = self.i_downsample(identity)
 
-        # mask_fn will internally call shared_ab.forward(identity, pos)
+        # ------------- NEW: compute & store mask -------------
         mask = self.mask_fn(identity)        # (B, C', H', W')
+        self.last_mask = mask
+
         out  = out + mask * identity
         return self.relu(out)
-
 
 
 class AdaptResNet(nn.Module):
@@ -312,17 +315,30 @@ class AdaptResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> (torch.Tensor, list):
+        """
+        Returns:
+          - logits: shape (B, num_classes)
+          - masks:  list of Tensors [ (B, C_i, H_i, W_i), ... ] collected from every AdaptBottleneck
+        """
+        # 1) Initial conv + bn + relu
         x = self.relu(self.bn1(self.conv1(x)))
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        all_masks = []
 
+        # 2) Manually run through layer1, layer2, layer3, layer4, collecting each block’s .last_mask
+        for layer in (self.layer1, self.layer2, self.layer3, self.layer4):
+            for block in layer:
+                x = block(x)
+                # block.last_mask was set in AdaptBottleneck.forward
+                all_masks.append(block.last_mask)
+
+        # 3) Global avgpool + flatten + fc
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        return self.fc(x)
+        logits = self.fc(x)
+
+        return logits, all_masks
 
 
 def AdaptResNet50(num_classes: int, channels: int = 3, hidden_ratio: float = 0.25, input_size: int = 224):
@@ -367,7 +383,7 @@ def main():
 
     dummy = torch.randn(4, 3, 32, 32, device=device)
     with torch.no_grad():
-        out = model(dummy)
+        logits, masks = model(dummy)
 
     # Print how many parameters each shared AdaptiveBlock has
     print("Trainable parameters in each shared AdaptiveBlock:")
@@ -377,9 +393,13 @@ def main():
             param_count = sum(p.numel() for p in module.parameters() if p.requires_grad)
             total_adaptive_params += param_count
             print(f"{name}: {param_count} parameters")
-
     print(f"Total across all shared AdaptiveBlocks: {total_adaptive_params}")
-    print(f"Output shape : {out.shape}")  # Expected: (4, 10)
+
+    # Check shapes
+    print(f"Output logits shape : {logits.shape}")   # (4, 10)
+    print(f"Number of masks returned: {len(masks)}")  # e.g. for ResNet50: 3+4+6+3 = 16 masks
+    for i, m in enumerate(masks[:3]):
+        print(f"  mask {i} shape = {m.shape}")        # each is (4, C_i, H_i, W_i)
 
 
 if __name__ == "__main__":
