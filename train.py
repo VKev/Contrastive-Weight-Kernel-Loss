@@ -453,9 +453,8 @@ def main():
         max_epochs=args.num_epochs,
         logger=logger,
         callbacks=callbacks,
-        gpus=2,
-        accelerator="gpu",
-        devices=[0, 1],
+        accelerator="gpu",      # chỉ rõ dùng GPU
+        devices=2,              # hoặc devices=[0, 1] nếu muốn chỉ định GPU ID cụ thể
         strategy="ddp",
         log_every_n_steps=10,
         check_val_every_n_epoch=1,
