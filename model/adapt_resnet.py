@@ -42,8 +42,8 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout(p=self.dropout_p),
         )
 
-        self.fc_A = nn.Linear(channels, height * rank, bias=False)
-        self.fc_B = nn.Linear(channels, rank * width, bias=False)
+        self.fc_A = nn.Linear(channels, height * rank, bias=True)
+        self.fc_B = nn.Linear(channels, rank * width, bias=True)
         self.sigmoid = nn.Sigmoid()
 
         # Kaiming init for all Linear layers in this block
@@ -63,6 +63,9 @@ class AdaptiveBlock(nn.Module):
             mode='fan_in',
             nonlinearity='relu'
         )
+        
+        nn.init.constant_(self.fc_A.bias, 2.0)
+        nn.init.constant_(self.fc_B.bias, 2.0)
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
