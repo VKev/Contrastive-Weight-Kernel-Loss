@@ -31,7 +31,7 @@ class AdaptiveBlock(nn.Module):
         # Shape = (num_positions, C)
         self.pos_emb = nn.Parameter(torch.zeros(num_positions, channels))
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
-
+        
         # 1) MLP that maps (B, C) → (B, C), using GELU + Dropout
         self.mlp = nn.Sequential(
             nn.Linear(channels, hidden_channels, bias=False),
@@ -93,7 +93,6 @@ class AdaptiveBlock(nn.Module):
         assert C == self.C, f"Got C={C}, expected {self.C}"
         if H != self.H or W != self.W:
             raise RuntimeError(f"Expected spatial=({self.H},{self.W}), got ({H},{W})")
-
         # 1) Global average per‐channel → y ∈ (B, C)
         y = x.mean(dim=[2, 3])  # shape = (B, C)
 
