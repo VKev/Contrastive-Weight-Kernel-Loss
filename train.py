@@ -397,11 +397,11 @@ def main():
         if "wandb_id" in hparams:
             args.wandb_id = hparams["wandb_id"]
         
-        for key, value in hparams.items():
-            if key != "resume" and hasattr(args, key) and getattr(args, key) != value:
-                print(f"Overriding {key}: {getattr(args, key)} -> {value}")
-                setattr(args, key, value)
-        checkpoint = None
+        # for key, value in hparams.items():
+        #     if key != "resume" and hasattr(args, key) and getattr(args, key) != value:
+        #         print(f"Overriding {key}: {getattr(args, key)} -> {value}")
+        #         setattr(args, key, value)
+        # checkpoint = None
     else:
         args.wandb_id = wandb.util.generate_id()
         
@@ -453,9 +453,8 @@ def main():
         max_epochs=args.num_epochs,
         logger=logger,
         callbacks=callbacks,
-        accelerator="gpu",      # chỉ rõ dùng GPU
-        devices=2,              # hoặc devices=[0, 1] nếu muốn chỉ định GPU ID cụ thể
-        strategy="ddp",
+        accelerator="auto",
+        devices="auto",
         log_every_n_steps=10,
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
