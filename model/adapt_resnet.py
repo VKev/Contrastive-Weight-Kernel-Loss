@@ -61,14 +61,11 @@ class AdaptiveBlock(nn.Module):
             mode='fan_in',
             nonlinearity='relu'
         )
-        nn.init.zeros_(self.fc_A.bias)
-
         nn.init.kaiming_uniform_(
             self.fc_B.weight,
             mode='fan_in',
             nonlinearity='relu'
         )
-        nn.init.zeros_(self.fc_B.bias)
 
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
