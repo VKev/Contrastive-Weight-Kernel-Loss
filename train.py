@@ -301,18 +301,13 @@ class Model(pl.LightningModule):
         if self.hparams["contrastive_kernel_loss"]:
             total_loss = total_loss + self.hparams["alpha"] * kernel_loss
 
-        # 3) (NEW) Mask‐penalty if model == "resnet50_adapt"
         if self.args.model.lower() == "resnet50_adapt":
-            # masks is a list of tensors, each shape (B, C_i, H_i, W_i)
             per_mask_losses = []
             for mask in masks:
-                # penalty for any value < 0.4:
-                penalty_mask = F.relu(0.4 - mask)
-                # MSE over that mask
+                penalty_mask = F.relu(0.5 - mask)
                 per_mask_mse = (penalty_mask).mean()
                 per_mask_losses.append(per_mask_mse)
 
-            # average across all shared‐block masks
             if per_mask_losses:
                 mask_penalty = torch.stack(per_mask_losses).mean()
             else:
