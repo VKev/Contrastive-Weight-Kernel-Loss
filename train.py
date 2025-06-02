@@ -281,7 +281,7 @@ class Model(pl.LightningModule):
         for name, param in self.model.named_parameters():
             if param.grad is not None:
                 grad_norm = param.grad.detach().norm(2)
-                self.log(f"grad_norm/{name}", grad_norm, on_step=True, on_epoch=False, prog_bar=False, logger=False)
+                self.log(f"grad_norm/{name}", grad_norm, on_step=True, on_epoch=False, prog_bar=False, logger=True)
     
     def on_train_epoch_end(self):
         avg_total_loss = torch.stack([x for x in self._train_losses['total_loss']]).mean()
