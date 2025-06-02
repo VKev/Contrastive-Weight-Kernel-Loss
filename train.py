@@ -309,7 +309,7 @@ class Model(pl.LightningModule):
                 # penalty for any value < 0.4:
                 penalty_mask = F.relu(0.4 - mask)
                 # MSE over that mask
-                per_mask_mse = (penalty_mask ** 2).mean()
+                per_mask_mse = (penalty_mask).mean()
                 per_mask_losses.append(per_mask_mse)
 
             # average across all shared‐block masks
