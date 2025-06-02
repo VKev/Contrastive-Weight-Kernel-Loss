@@ -191,7 +191,6 @@ class Model(pl.LightningModule):
                 mode="min",
                 factor=0.1,
                 patience=5,
-                verbose=True
             )
 
             # scheduler = optim.lr_scheduler.MultiStepLR(
@@ -264,9 +263,26 @@ class Model(pl.LightningModule):
         if self.hparams['contrastive_kernel_loss']:
             self.log("train/cls_loss", cls_loss, on_step=True, on_epoch=False)
             self.log("train/kernel_loss", kernel_loss, on_step=True, on_epoch=False)
-        
+        optimizer = self.optimizers()  # returns a list, take the first optimizer
+        current_lr = optimizer.param_groups[0]["lr"]
+        self.log("train/lr", current_lr, on_step=True, on_epoch=False)
         return total_loss
 
+    def on_after_backward(self):
+        total_norm = torch.norm(
+            torch.stack([
+                p.grad.detach().norm(2)
+                for p in self.parameters()
+                if p.grad is not None
+            ])
+        , p=2)
+
+        self.log("grad_norm/global", total_norm, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        for name, param in self.model.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.detach().norm(2)
+                self.log(f"grad_norm/{name}", grad_norm, on_step=True, on_epoch=False, prog_bar=False, logger=False)
+    
     def on_train_epoch_end(self):
         avg_total_loss = torch.stack([x for x in self._train_losses['total_loss']]).mean()
         

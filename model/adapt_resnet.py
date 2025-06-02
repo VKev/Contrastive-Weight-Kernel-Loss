@@ -3,11 +3,31 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class AdaptiveBlock(nn.Module):
-    def __init__(self, channels: int, hidden_ratio: float, height: int, width: int, dropout: float = 0.1):
+    def __init__(self, channels: int, hidden_ratio: float, height: int, width: int, rank: int = 4, dropout: float = 0.1):
+        """
+        AdaptiveBlock with low-rank factorization:
+         - Globally pools each channel to a scalar y[b,c]
+         - Runs an MLP on the full (B, C) vector → (B, C) to let channels “attend” to each other
+         - Takes y′ ∈ (B, C) and, for each (b,c), replicates y′[b] into (C) then passes
+           through two linears:
+             A[b,c] = Linear(C → H·rank)  → reshaped to (B, C, H, rank)
+             B[b,c] = Linear(C → rank·W)  → reshaped to (B, C, rank, W)
+         - Performs a per‐channel matmul: M[b,c] = A[b,c] @ B[b,c] ∈ (H, W)
+         - Finally, attn_map[b,c] = sigmoid(M[b,c])
+
+        Args:
+            channels (int): Number of channels (C).
+            hidden_ratio (float): Hidden‐size multiplier for the MLP.
+            height (int): Spatial height (H).
+            width (int): Spatial width (W).
+            rank (int): Low‐rank dimension (r).
+            dropout (float): Dropout probability inside the MLP.
+        """
         super().__init__()
         self.C = channels
         self.H = height
         self.W = width
+        self.r = rank
         self.dropout_p = dropout
 
         hidden_channels = int(channels * hidden_ratio)
@@ -24,13 +44,25 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout(p=self.dropout_p),
         )
 
-        # 2) Single Linear to go from length‐C → length‐H (applied on (B*C, C) later)
-        self.fc_A = nn.Linear(channels, height, bias=True)
+        # 2) Single Linear to go from length-C → length-(H·r) (applied on (B*C, C) later)
+        self.fc_A = nn.Linear(channels, height * rank, bias=True)
 
-        # 3) Single Linear to go from length‐C → length‐W
-        self.fc_B = nn.Linear(channels, width, bias=True)
+        # 3) Single Linear to go from length-C → length-(r·W)
+        self.fc_B = nn.Linear(channels, rank * width, bias=True)
 
         self.sigmoid = nn.Sigmoid()
+        
+        for module in self.mlp:
+            if isinstance(module, nn.Linear):
+                nn.init.constant_(module.weight, 0.0)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+
+        nn.init.constant_(self.fc_A.weight, 0.0)
+        nn.init.constant_(self.fc_A.bias, 1.0)
+
+        nn.init.constant_(self.fc_B.weight, 0.0)
+        nn.init.constant_(self.fc_B.bias, 1.0)
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -67,38 +99,26 @@ class AdaptiveBlock(nn.Module):
         # 2) MLP on the pooled vector → y′ ∈ (B, C)
         y_prime = self.mlp(y)   # shape = (B, C)
 
-        # 3) We want to create a (B*C, C) tensor so that we can apply a single
-        #    Linear(C → H) and Linear(C → W) for all (b, c) pairs.
-        #
-        #    To do that, expand y_prime[b] (length C) into a (C, C) matrix and then
-        #    reshape. Concretely:
-        #
-        #    - y_prime has shape (B, C).
-        #    - y_prime.unsqueeze(1) → (B, 1, C).
-        #    - Expand to (B, C, C) so that each channel index c gets the same y_prime[b].
-        #    - Then .reshape(B*C, C).
+        # 3) Build (B*C, C) so that we can apply Linear(C → H·r) and Linear(C → r·W)
         y_rep = y_prime.unsqueeze(1).expand(B, C, C)  # (B, C, C)
         y_flat = y_rep.contiguous().view(B * C, C)    # (B*C, C)
 
-        # 4) Apply the single Linear(C → H) to get A_flat: (B*C, H).
-        A_flat = self.fc_A(y_flat)   # shape = (B*C, H)
+        # 4) Apply Linear(C → H·r) → A_flat: (B*C, H·r)
+        A_flat = self.fc_A(y_flat)  # (B*C, H*r)
+        #    reshape → (B, C, H, r)
+        A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
 
-        # 5) Apply the single Linear(C → W) to get B_flat: (B*C, W).
-        B_flat = self.fc_B(y_flat)   # shape = (B*C, W)
+        # 5) Apply Linear(C → r·W) → B_flat: (B*C, r·W)
+        B_flat = self.fc_B(y_flat)  # (B*C, r*W)
+        #    reshape → (B, C, r, W)
+        Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
 
-        # 6) Reshape back to (B, C, H) and (B, C, W):
-        A = A_flat.view(B, C, self.H)    # → (B, C, H)
-        Bv = B_flat.view(B, C, self.W)   # → (B, C, W)
+        # 6) Perform per‐channel matmul: (H, r) @ (r, W) → (H, W)
+        #    Result M has shape (B, C, H, W)
+        M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)
 
-        # 7) Unsqueeze to get (B, C, H, 1) and (B, C, 1, W)
-        A = A.unsqueeze(-1)     # (B, C, H, 1)
-        Bv = Bv.unsqueeze(2)    # (B, C, 1, W)
-
-        # 8) Outer‐product per‐channel → (B, C, H, W)
-        attn_map = A * Bv
-
-        # 9) Sigmoid to confine map to [0, 1]
-        attn_map = self.sigmoid(attn_map)
+        # 7) Sigmoid to confine values to [0, 1]
+        attn_map = self.sigmoid(M)
 
         return attn_map
 
