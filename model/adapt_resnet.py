@@ -50,19 +50,20 @@ class AdaptiveBlock(nn.Module):
         for module in self.mlp:
             if isinstance(module, nn.Linear):
                 nn.init.kaiming_uniform_(module.weight, a=math.sqrt(5))
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0.0)
 
         nn.init.kaiming_uniform_(
             self.fc_A.weight,
             mode='fan_in',
             nonlinearity='relu'
         )
+        nn.init.constant_(self.fc_A.bias, 0.0)
+
         nn.init.kaiming_uniform_(
             self.fc_B.weight,
             mode='fan_in',
             nonlinearity='relu'
         )
+        nn.init.constant_(self.fc_B.bias, 0.0)
         
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
