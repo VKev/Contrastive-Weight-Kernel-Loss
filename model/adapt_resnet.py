@@ -135,7 +135,7 @@ class AdaptBottleneck(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        mask_fn,                        # will be a lambda capturing shared_ab.forward + position
+        mask_fn: nn.Module,  # Now expects a nn.Module rather than lambda
         i_downsample=None,
         stride: int = 1
     ):
@@ -158,7 +158,7 @@ class AdaptBottleneck(nn.Module):
 
         self.relu         = nn.ReLU(inplace=True)
         self.i_downsample = i_downsample
-        self.mask_fn      = mask_fn  # this is a lambda(x) that calls shared_ab.forward(x, pos)
+        self.mask_fn      = mask_fn  # Now an nn.Module that encapsulates shared_ab + position
 
         # **NEW**: store the last‐forward mask here
         self.last_mask = None
@@ -179,6 +179,21 @@ class AdaptBottleneck(nn.Module):
 
         out  = out + mask * identity
         return self.relu(out)
+
+
+class MaskWrapper(nn.Module):
+    """
+    Wraps a shared AdaptiveBlock and a fixed position index so that calling
+    this module returns shared_ab(x, position).
+    """
+    def __init__(self, shared_ab: AdaptiveBlock, position: int):
+        super().__init__()
+        self.shared_ab = shared_ab
+        self.position = position
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Call the shared AdaptiveBlock with the stored position
+        return self.shared_ab(x, self.position)
 
 
 class AdaptResNet(nn.Module):
@@ -294,15 +309,15 @@ class AdaptResNet(nn.Module):
             block_stride     = stride if block_idx == 0 else 1
             block_downsample = downsample if block_idx == 0 else None
 
-            # Create a lambda that captures this block’s index:
-            mask_fn = lambda x, idx=block_idx: shared_ab.forward(x, idx)
+            # Create a MaskWrapper module that captures this block’s index
+            mask_wrapper = MaskWrapper(shared_ab, block_idx)
 
-            # Now create the ResBlock, passing mask_fn
+            # Now create the ResBlock, passing mask_wrapper
             layers.append(
                 ResBlock(
                     in_channels=self.in_channels,
                     out_channels=planes,
-                    mask_fn=mask_fn,
+                    mask_fn=mask_wrapper,
                     i_downsample=block_downsample,
                     stride=block_stride
                 )
