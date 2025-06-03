@@ -304,7 +304,7 @@ class Model(pl.LightningModule):
         if self.args.model.lower() == "resnet50_adapt":
             per_mask_losses = []
             for mask in masks:
-                penalty_mask = F.relu(0.5 - mask)
+                penalty_mask = F.relu(1 - mask)
                 per_mask_mse = (penalty_mask).mean()
                 per_mask_losses.append(per_mask_mse)
 
@@ -313,7 +313,7 @@ class Model(pl.LightningModule):
             else:
                 mask_penalty = torch.tensor(0.0, device=self.device)
 
-            if self.current_epoch < 100:
+            if self.current_epoch < 35:
                 total_loss = total_loss + self.mask_penalty_weight * mask_penalty
             self.log(
                 "train/mask_penalty", mask_penalty, on_step=True, on_epoch=False
