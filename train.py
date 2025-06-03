@@ -505,7 +505,8 @@ def main():
         monitor="test/epoch_acc",
         mode="max",
         save_top_k=-1,
-        every_n_epochs=1,
+    # == every_n_epochs=1 writes a new file at the end of each epoch
+    every_n_epochs=1,
     )
     callbacks.append(checkpoint_callback)
 
