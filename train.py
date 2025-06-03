@@ -442,6 +442,7 @@ def parse_args():
     parser.add_argument("--save_every", type=int, default=10, help="Save checkpoint every n epochs")
     parser.add_argument("--contrastive_kernel_loss", action="store_true", help="Use contrastive kernel loss")
     parser.add_argument("--wandb", action="store_true", help="Use WandB logging")
+    parser.add_argument("--device", type=str, default="auto", help="device")
     parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
     parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping")
     parser.add_argument(
@@ -528,7 +529,7 @@ def main():
         logger=logger,
         callbacks=callbacks,
         accelerator="auto",
-        devices="auto",
+        devices=args.device,
         log_every_n_steps=10,
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
