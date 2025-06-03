@@ -141,10 +141,10 @@ class AdaptBottleneck(nn.Module):
     ):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1   = nn.BatchNorm2d(out_channels)
+        self.batch_norm1   = nn.BatchNorm2d(out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2   = nn.BatchNorm2d(out_channels)
+        self.batch_norm2   = nn.BatchNorm2d(out_channels)
 
         self.conv3 = nn.Conv2d(
             out_channels,
@@ -154,7 +154,7 @@ class AdaptBottleneck(nn.Module):
             padding=0,
             bias=False
         )
-        self.bn3   = nn.BatchNorm2d(out_channels * self.expansion)
+        self.batch_norm3   = nn.BatchNorm2d(out_channels * self.expansion)
 
         self.relu         = nn.ReLU(inplace=True)
         self.i_downsample = i_downsample
@@ -166,9 +166,9 @@ class AdaptBottleneck(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x
 
-        out = self.relu(self.bn1(self.conv1(x)))
-        out = self.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        out = self.relu(self.batch_norm1(self.conv1(x)))
+        out = self.relu(self.batch_norm2(self.conv2(out)))
+        out = self.batch_norm3(self.conv3(out))
 
         if self.i_downsample is not None:
             identity = self.i_downsample(identity)
@@ -212,7 +212,7 @@ class AdaptResNet(nn.Module):
 
         # Initial convolution + BN + ReLU (no maxpool to keep higher resolution)
         self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1   = nn.BatchNorm2d(64)
+        self.batch_norm1   = nn.BatchNorm2d(64)
         self.relu  = nn.ReLU(inplace=True)
 
         # We assume the input’s spatial dims are (input_size, input_size).
@@ -337,7 +337,7 @@ class AdaptResNet(nn.Module):
           - masks:  list of Tensors [ (B, C_i, H_i, W_i), ... ] collected from every AdaptBottleneck
         """
         # 1) Initial conv + bn + relu
-        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.batch_norm1(self.conv1(x)))
 
         all_masks = []
 
