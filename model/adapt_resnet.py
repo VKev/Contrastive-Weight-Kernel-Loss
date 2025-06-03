@@ -7,43 +7,43 @@ import math
 class AdaptiveBlock(nn.Module):
     def __init__(
         self,
-        channels: int,
+        max_channels: int,
         hidden_ratio: float,
-        height: int,
-        width: int,
+        max_height: int,
+        max_width: int,
         rank: int = 8,
         dropout: float = 0.1,
-        num_positions: int = 1  # number of ResBlocks in this stage
+        total_positions: int = 16  # total number of ResBlocks across all stages
     ):
         super().__init__()
-        self.C = channels
-        self.H = height
-        self.W = width
+        self.max_C = max_channels
+        self.max_H = max_height
+        self.max_W = max_width
         self.r = rank
         self.dropout_p = dropout
-        self.num_positions = num_positions
+        self.total_positions = total_positions
 
-        hidden_channels = int(channels * hidden_ratio)
+        hidden_channels = int(max_channels * hidden_ratio)
         if hidden_channels == 0:
             raise ValueError("hidden_ratio too small → hidden_channels = 0")
 
-        # Positional embeddings: one vector per ResBlock position
-        # Shape = (num_positions, C)
-        self.pos_emb = nn.Parameter(torch.zeros(num_positions, channels))
+        # Positional embeddings: one vector per ResBlock position across all stages
+        # Shape = (total_positions, max_channels)
+        self.pos_emb = nn.Parameter(torch.zeros(total_positions, max_channels))
         nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
 
-        # 1) MLP that maps (B, C) → (B, C), using GELU + Dropout
+        # MLP that maps (B, max_channels) → (B, max_channels), using GELU + Dropout
         self.mlp = nn.Sequential(
-            nn.Linear(channels, hidden_channels, bias=False),
+            nn.Linear(max_channels, hidden_channels, bias=False),
             nn.GELU(),
             nn.Dropout(p=self.dropout_p),
-            nn.Linear(hidden_channels, channels, bias=False),
+            nn.Linear(hidden_channels, max_channels, bias=False),
             nn.GELU(),
             nn.Dropout(p=self.dropout_p),
         )
 
-        self.fc_A = nn.Linear(channels, height * rank, bias=True)
-        self.fc_B = nn.Linear(channels, rank * width, bias=True)
+        self.fc_A = nn.Linear(max_channels, max_height * rank, bias=True)
+        self.fc_B = nn.Linear(max_channels, rank * max_width, bias=True)
         self.sigmoid = nn.Sigmoid()
 
         # Kaiming init for all Linear layers in this block
@@ -67,63 +67,67 @@ class AdaptiveBlock(nn.Module):
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
-        If input has fewer than self.C channels, pad with zeros.
+        If input has fewer than self.max_C channels, pad with zeros.
         If input has more, slice off the extras.
         """
         B, C_in, H, W = x.shape
-        if C_in < self.C:
-            pad = torch.zeros((B, self.C - C_in, H, W),
+        if C_in < self.max_C:
+            pad = torch.zeros((B, self.max_C - C_in, H, W),
                               device=x.device, dtype=x.dtype)
             x = torch.cat([x, pad], dim=1)
-        elif C_in > self.C:
-            x = x[:, :self.C, :, :]
+        elif C_in > self.max_C:
+            x = x[:, :self.max_C, :, :]
         return x
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         """
         Args:
-            x: Tensor of shape (B, C_in, H, W). After channel matching,
-               it must be (B, self.C, self.H, self.W).
-            pos: integer in [0, num_positions), indicating which ResBlock
+            x: Tensor of shape (B, C_in, H, W).
+            pos: integer in [0, total_positions), indicating which ResBlock
                  this call corresponds to (for positional embedding).
         Returns:
-            attn_map: Tensor of shape (B, C, H, W).
+            attn_map: Tensor of shape (B, C_in, H, W) - same shape as input.
         """
-        x = self._match_channels(x)
-        B, C, H, W = x.shape
-        assert C == self.C, f"Got C={C}, expected {self.C}"
-        if H != self.H or W != self.W:
-            raise RuntimeError(f"Expected spatial=({self.H},{self.W}), got ({H},{W})")
+        B, C_in, H_in, W_in = x.shape
+        
+        # Match channels for processing
+        x_padded = self._match_channels(x)
+        B, C_padded, H, W = x_padded.shape
 
-        # 1) Global average per‐channel → y ∈ (B, C)
-        y = x.mean(dim=[2, 3])  # shape = (B, C)
+        # 1) Global average per‐channel → y ∈ (B, C_padded)
+        y = x_padded.mean(dim=[2, 3])  # shape = (B, C_padded)
 
         # 1.5) Add positional embedding for this ResBlock
-        # self.pos_emb[pos] has shape (C,), broadcast to (B, C)
+        # self.pos_emb[pos] has shape (C_padded,), broadcast to (B, C_padded)
         y = y + self.pos_emb[pos]
 
-        # 2) MLP on the pooled vector → y′ ∈ (B, C)
-        y_prime = self.mlp(y)   # shape = (B, C)
+        # 2) MLP on the pooled vector → y′ ∈ (B, C_padded)
+        y_prime = self.mlp(y)   # shape = (B, C_padded)
 
-        # 3) Build (B*C, C) so that we can apply Linear(C → H·r) and Linear(C → r·W)
-        y_rep = y_prime.unsqueeze(1).expand(B, C, C)  # (B, C, C)
-        y_flat = y_rep.contiguous().view(B * C, C)    # (B*C, C)
+        # 3) Build (B*C_in, C_padded) so that we can apply Linear operations
+        # Only use the actual input channels for efficiency
+        y_rep = y_prime.unsqueeze(1).expand(B, C_in, self.max_C)  # (B, C_in, C_padded)
+        y_flat = y_rep.contiguous().view(B * C_in, self.max_C)    # (B*C_in, C_padded)
 
-        # 4) Apply Linear(C → H·r) → A_flat: (B*C, H·r)
-        A_flat = self.fc_A(y_flat)  # (B*C, H·r)
-        #    reshape → (B, C, H, r)
-        A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
+        # 4) Apply Linear(C_padded → max_H·r) → A_flat: (B*C_in, max_H·r)
+        A_flat = self.fc_A(y_flat)  # (B*C_in, max_H·r)
+        #    reshape → (B, C_in, max_H, r)
+        A = A_flat.view(B, C_in, self.max_H, self.r)  # (B, C_in, max_H, r)
 
-        # 5) Apply Linear(C → r·W) → B_flat: (B*C, r·W)
-        B_flat = self.fc_B(y_flat)  # (B*C, r·W)
-        #    reshape → (B, C, r, W)
-        Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
+        # 5) Apply Linear(C_padded → r·max_W) → B_flat: (B*C_in, r·max_W)
+        B_flat = self.fc_B(y_flat)  # (B*C_in, r·max_W)
+        #    reshape → (B, C_in, r, max_W)
+        Bv = B_flat.view(B, C_in, self.r, self.max_W)  # (B, C_in, r, max_W)
 
-        # 6) Perform per‐channel matmul: (H, r) @ (r, W) → (H, W)
-        #    Result M has shape (B, C, H, W)
-        M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)
+        # 6) TRUNCATE A AND B TO MATCH INPUT DIMENSIONS BEFORE MATMUL
+        A_truncated = A[:, :, :H_in, :]  # (B, C_in, H_in, r)
+        Bv_truncated = Bv[:, :, :, :W_in]  # (B, C_in, r, W_in)
 
-        # 7) Sigmoid to confine values to [0, 1]
+        # 7) Perform per‐channel matmul: (H_in, r) @ (r, W_in) → (H_in, W_in)
+        #    Result M has shape (B, C_in, H_in, W_in) - matches input exactly
+        M = torch.einsum('b c i k, b c k j -> b c i j', A_truncated, Bv_truncated)
+
+        # 8) Sigmoid to confine values to [0, 1]
         attn_map = self.sigmoid(M)
         return attn_map
 
@@ -215,48 +219,73 @@ class AdaptResNet(nn.Module):
         self.batch_norm1   = nn.BatchNorm2d(64)
         self.relu  = nn.ReLU(inplace=True)
 
-        # We assume the input’s spatial dims are (input_size, input_size).
+        # Calculate total number of blocks across all layers
+        total_blocks = sum(layers)
+        
+        # Calculate max dimensions across all layers
+        max_channels = 512 * ResBlock.expansion  # layer4 has the most channels
+        max_spatial = input_size  # layer1 has the largest spatial dimensions
+
+        # Create ONE shared AdaptiveBlock for all layers
+        self.shared_adaptive_block = AdaptiveBlock(
+            max_channels=max_channels,
+            hidden_ratio=hidden_ratio,
+            max_height=max_spatial,
+            max_width=max_spatial,
+            rank=8,
+            dropout=0.1,
+            total_positions=total_blocks
+        )
+
+        # We assume the input's spatial dims are (input_size, input_size).
         spatial = input_size  # current spatial resolution
+        position_counter = 0  # Track global position across all layers
 
         # Layer 1: stride = 1 → spatial remains = input_size
-        self.layer1 = self._make_layer(
+        self.layer1, position_counter = self._make_layer(
             ResBlock,
             planes=64,
             blocks=layers[0],
             stride=1,
             height=spatial,
-            width=spatial
+            width=spatial,
+            position_start=position_counter
         )
-        # After layer1, spatial does not change
+        
         # Layer 2: stride = 2 → spatial //= 2
         spatial = spatial // 2
-        self.layer2 = self._make_layer(
+        self.layer2, position_counter = self._make_layer(
             ResBlock,
             planes=128,
             blocks=layers[1],
             stride=2,
             height=spatial,
-            width=spatial
+            width=spatial,
+            position_start=position_counter
         )
+        
         # Layer 3: stride = 2 → spatial //= 2
         spatial = spatial // 2
-        self.layer3 = self._make_layer(
+        self.layer3, position_counter = self._make_layer(
             ResBlock,
             planes=256,
             blocks=layers[2],
             stride=2,
             height=spatial,
-            width=spatial
+            width=spatial,
+            position_start=position_counter
         )
+        
         # Layer 4: stride = 2 → spatial //= 2
         spatial = spatial // 2
-        self.layer4 = self._make_layer(
+        self.layer4, position_counter = self._make_layer(
             ResBlock,
             planes=512,
             blocks=layers[3],
             stride=2,
             height=spatial,
-            width=spatial
+            width=spatial,
+            position_start=position_counter
         )
 
         # Final global average pool + linear classifier
@@ -270,25 +299,13 @@ class AdaptResNet(nn.Module):
         blocks: int,
         stride: int,
         height: int,
-        width: int
-    ) -> nn.Sequential:
+        width: int,
+        position_start: int
+    ) -> tuple:
         layers = []
 
         # Number of channels feeding into AdaptiveBlock = planes * expansion
         ab_channels = planes * ResBlock.expansion
-
-        # Create one shared AdaptiveBlock per stage, with a positional embedding of size `blocks`
-        shared_ab = AdaptiveBlock(
-            ab_channels,
-            self.hidden_ratio,
-            height,
-            width,
-            rank=8,
-            dropout=0.1,
-            num_positions=blocks
-        )
-        # Register the shared AdaptiveBlock so its parameters are tracked
-        self.add_module(f"adapt_ab_{planes}", shared_ab)
 
         # Determine if we need a downsample on the identity for the first block
         downsample = None
@@ -304,13 +321,14 @@ class AdaptResNet(nn.Module):
                 nn.BatchNorm2d(ab_channels)
             )
 
+        position_counter = position_start
         for block_idx in range(blocks):
             # For the first block: use `stride` and `downsample`; subsequent blocks use stride=1, no downsample
             block_stride     = stride if block_idx == 0 else 1
             block_downsample = downsample if block_idx == 0 else None
 
-            # Create a MaskWrapper module that captures this block’s index
-            mask_wrapper = MaskWrapper(shared_ab, block_idx)
+            # Create a MaskWrapper module that captures this block's global position
+            mask_wrapper = MaskWrapper(self.shared_adaptive_block, position_counter)
 
             # Now create the ResBlock, passing mask_wrapper
             layers.append(
@@ -327,8 +345,10 @@ class AdaptResNet(nn.Module):
             if block_idx == 0:
                 self.in_channels = ab_channels
                 downsample = None
+            
+            position_counter += 1
 
-        return nn.Sequential(*layers)
+        return nn.Sequential(*layers), position_counter
 
     def forward(self, x: torch.Tensor) -> (torch.Tensor, list):
         """
@@ -341,7 +361,7 @@ class AdaptResNet(nn.Module):
 
         all_masks = []
 
-        # 2) Manually run through layer1, layer2, layer3, layer4, collecting each block’s .last_mask
+        # 2) Manually run through layer1, layer2, layer3, layer4, collecting each block's .last_mask
         for layer in (self.layer1, self.layer2, self.layer3, self.layer4):
             for block in layer:
                 x = block(x)
@@ -400,21 +420,20 @@ def main():
     with torch.no_grad():
         logits, masks = model(dummy)
 
-    # Print how many parameters each shared AdaptiveBlock has
-    print("Trainable parameters in each shared AdaptiveBlock:")
-    total_adaptive_params = 0
-    for name, module in model.named_modules():
-        if isinstance(module, AdaptiveBlock):
-            param_count = sum(p.numel() for p in module.parameters() if p.requires_grad)
-            total_adaptive_params += param_count
-            print(f"{name}: {param_count} parameters")
-    print(f"Total across all shared AdaptiveBlocks: {total_adaptive_params}")
+    # Print how many parameters the single shared AdaptiveBlock has
+    print("Trainable parameters in the single shared AdaptiveBlock:")
+    param_count = sum(p.numel() for p in model.shared_adaptive_block.parameters() if p.requires_grad)
+    print(f"shared_adaptive_block: {param_count} parameters")
 
     # Check shapes
     print(f"Output logits shape : {logits.shape}")   # (4, 10)
     print(f"Number of masks returned: {len(masks)}")  # e.g. for ResNet50: 3+4+6+3 = 16 masks
     for i, m in enumerate(masks[:3]):
         print(f"  mask {i} shape = {m.shape}")        # each is (4, C_i, H_i, W_i)
+
+    # Print total model parameters
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total model parameters: {total_params}")
 
 
 if __name__ == "__main__":
