@@ -504,8 +504,8 @@ def main():
         + "-{epoch}-{test_acc:.4f}",
         monitor="test/epoch_acc",
         mode="max",
-        save_top_k=1,
-        save_last=True,
+        save_top_k=-1,
+        every_n_epochs=1,
     )
     callbacks.append(checkpoint_callback)
 
