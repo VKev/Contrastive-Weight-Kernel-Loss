@@ -1,4 +1,4 @@
-batch_size: 6
+batch_size: 32
 contrastive_kernel_loss: False
 num_epochs: 250
 lr: 0.1

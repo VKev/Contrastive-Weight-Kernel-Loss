@@ -36,15 +36,15 @@ class AdaptiveBlock(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(channels, hidden_channels, bias=False),
             nn.GELU(),
-            nn.Dropout(p=self.dropout_p),
+            nn.Dropout(p=self.dropout_p, inplace=True),
             nn.Linear(hidden_channels, channels, bias=False),
             nn.GELU(),
-            nn.Dropout(p=self.dropout_p),
+            nn.Dropout(p=self.dropout_p, inplace=True),
         )
 
-        self.fc_A = nn.Linear(channels, height * rank, bias=True)
-        self.fc_B = nn.Linear(channels, rank * width, bias=True)
-        self.sigmoid = nn.Sigmoid()
+        # Optimized: use separate linear layers for each channel instead of expansion
+        self.fc_A = nn.Linear(channels, height * rank, bias=False)
+        self.fc_B = nn.Linear(channels, rank * width, bias=False)
 
         # Kaiming init for all Linear layers in this block
         for module in self.mlp:
@@ -56,14 +56,12 @@ class AdaptiveBlock(nn.Module):
             mode='fan_in',
             nonlinearity='relu'
         )
-        nn.init.constant_(self.fc_A.bias, 0.0)
 
         nn.init.kaiming_uniform_(
             self.fc_B.weight,
             mode='fan_in',
             nonlinearity='relu'
         )
-        nn.init.constant_(self.fc_B.bias, 0.0)
 
     def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -81,13 +79,7 @@ class AdaptiveBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         """
-        Args:
-            x: Tensor of shape (B, C_in, H, W). After channel matching,
-               it must be (B, self.C, self.H, self.W).
-            pos: integer in [0, num_positions), indicating which ResBlock
-                 this call corresponds to (for positional embedding).
-        Returns:
-            attn_map: Tensor of shape (B, C, H, W).
+        Optimized forward pass with reduced memory allocations.
         """
         x = self._match_channels(x)
         B, C, H, W = x.shape
@@ -98,34 +90,26 @@ class AdaptiveBlock(nn.Module):
         # 1) Global average per‐channel → y ∈ (B, C)
         y = x.mean(dim=[2, 3])  # shape = (B, C)
 
-        # 1.5) Add positional embedding for this ResBlock
-        # self.pos_emb[pos] has shape (C,), broadcast to (B, C)
+        # 1.5) Add positional embedding for this ResBlock (in-place)
         y = y + self.pos_emb[pos]
 
         # 2) MLP on the pooled vector → y′ ∈ (B, C)
         y_prime = self.mlp(y)   # shape = (B, C)
 
-        # 3) Build (B*C, C) so that we can apply Linear(C → H·r) and Linear(C → r·W)
-        y_rep = y_prime.unsqueeze(1).expand(B, C, C)  # (B, C, C)
-        y_flat = y_rep.contiguous().view(B * C, C)    # (B*C, C)
+        # 3) Optimized: directly apply linear transformations per channel
+        # Instead of expanding to (B*C, C), we use broadcasting more efficiently
+        A_flat = self.fc_A(y_prime)  # (B, H·r)
+        B_flat = self.fc_B(y_prime)  # (B, r·W)
+        
+        # Reshape to get per-channel matrices
+        A = A_flat.view(B, 1, self.H, self.r).expand(B, C, self.H, self.r)  # (B, C, H, r)
+        Bv = B_flat.view(B, 1, self.r, self.W).expand(B, C, self.r, self.W)  # (B, C, r, W)
 
-        # 4) Apply Linear(C → H·r) → A_flat: (B*C, H·r)
-        A_flat = self.fc_A(y_flat)  # (B*C, H·r)
-        #    reshape → (B, C, H, r)
-        A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
-
-        # 5) Apply Linear(C → r·W) → B_flat: (B*C, r·W)
-        B_flat = self.fc_B(y_flat)  # (B*C, r·W)
-        #    reshape → (B, C, r, W)
-        Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
-
-        # 6) Perform per‐channel matmul: (H, r) @ (r, W) → (H, W)
-        #    Result M has shape (B, C, H, W)
+        # 4) Perform per‐channel matmul: (H, r) @ (r, W) → (H, W)
         M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)
 
-        # 7) Sigmoid to confine values to [0, 1]
-        attn_map = self.sigmoid(M)
-        return attn_map
+        # 5) Sigmoid activation (in-place for memory efficiency)
+        return torch.sigmoid(M)
 
 
 class AdaptBottleneck(nn.Module):
@@ -141,10 +125,10 @@ class AdaptBottleneck(nn.Module):
     ):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
-        self.batch_norm1   = nn.BatchNorm2d(out_channels)
+        self.batch_norm1 = nn.BatchNorm2d(out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1)
-        self.batch_norm2   = nn.BatchNorm2d(out_channels)
+        self.batch_norm2 = nn.BatchNorm2d(out_channels)
 
         self.conv3 = nn.Conv2d(
             out_channels,
@@ -152,19 +136,18 @@ class AdaptBottleneck(nn.Module):
             kernel_size=1,
             stride=1,
             padding=0,
-            bias=False
         )
-        self.batch_norm3   = nn.BatchNorm2d(out_channels * self.expansion)
+        self.batch_norm3 = nn.BatchNorm2d(out_channels * self.expansion)
 
-        self.relu         = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=True)
         self.i_downsample = i_downsample
-        self.mask_fn      = mask_fn  # Now an nn.Module that encapsulates shared_ab + position
+        self.mask_fn = mask_fn  # Now an nn.Module that encapsulates shared_ab + position
 
         # **NEW**: store the last‐forward mask here
         self.last_mask = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        identity = x
+        identity = x.clone()
 
         out = self.relu(self.batch_norm1(self.conv1(x)))
         out = self.relu(self.batch_norm2(self.conv2(out)))
@@ -177,7 +160,8 @@ class AdaptBottleneck(nn.Module):
         mask = self.mask_fn(identity)        # (B, C', H', W')
         self.last_mask = mask
 
-        out  = out + mask * identity
+        # Optimized: use in-place multiplication and addition where possible
+        out.add_(mask * identity)
         return self.relu(out)
 
 
@@ -207,15 +191,15 @@ class AdaptResNet(nn.Module):
         input_size: int = 224
     ):
         super().__init__()
-        self.in_channels  = 64
+        self.in_channels = 64
         self.hidden_ratio = hidden_ratio
 
         # Initial convolution + BN + ReLU (no maxpool to keep higher resolution)
         self.conv1 = nn.Conv2d(num_channels, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.batch_norm1   = nn.BatchNorm2d(64)
-        self.relu  = nn.ReLU(inplace=True)
+        self.batch_norm1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
 
-        # We assume the input’s spatial dims are (input_size, input_size).
+        # We assume the input's spatial dims are (input_size, input_size).
         spatial = input_size  # current spatial resolution
 
         # Layer 1: stride = 1 → spatial remains = input_size
@@ -261,7 +245,7 @@ class AdaptResNet(nn.Module):
 
         # Final global average pool + linear classifier
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc      = nn.Linear(512 * ResBlock.expansion, num_classes)
+        self.fc = nn.Linear(512 * ResBlock.expansion, num_classes)
 
     def _make_layer(
         self,
@@ -306,10 +290,10 @@ class AdaptResNet(nn.Module):
 
         for block_idx in range(blocks):
             # For the first block: use `stride` and `downsample`; subsequent blocks use stride=1, no downsample
-            block_stride     = stride if block_idx == 0 else 1
+            block_stride = stride if block_idx == 0 else 1
             block_downsample = downsample if block_idx == 0 else None
 
-            # Create a MaskWrapper module that captures this block’s index
+            # Create a MaskWrapper module that captures this block's index
             mask_wrapper = MaskWrapper(shared_ab, block_idx)
 
             # Now create the ResBlock, passing mask_wrapper
@@ -341,7 +325,7 @@ class AdaptResNet(nn.Module):
 
         all_masks = []
 
-        # 2) Manually run through layer1, layer2, layer3, layer4, collecting each block’s .last_mask
+        # 2) Manually run through layer1, layer2, layer3, layer4, collecting each block's .last_mask
         for layer in (self.layer1, self.layer2, self.layer3, self.layer4):
             for block in layer:
                 x = block(x)

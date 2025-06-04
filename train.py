@@ -313,7 +313,7 @@ class Model(pl.LightningModule):
             else:
                 mask_penalty = torch.tensor(0.0, device=self.device)
 
-            if self.current_epoch < 35:
+            if self.current_epoch < 28:
                 total_loss = total_loss + self.mask_penalty_weight * mask_penalty
             self.log(
                 "train/mask_penalty", mask_penalty, on_step=True, on_epoch=False
@@ -434,7 +434,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--alpha", type=float, default=1, help="Alpha parameter")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
-    parser.add_argument("--batch_size", type=int, default=6, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--margin", type=float, default=8, help="Margin for contrastive loss")
     parser.add_argument("--model", type=str, default="resnet50", help="Model architecture")
     parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
@@ -459,6 +459,7 @@ def parse_args():
             config = yaml.safe_load(f)
         for key, value in config.items():
             setattr(args, key, value)
+            print(f"Overriding {key}: {getattr(args, key)} -> {value}")
 
     return args
 
@@ -504,9 +505,8 @@ def main():
         + "-{epoch}-{test_acc:.4f}",
         monitor="test/epoch_acc",
         mode="max",
-        save_top_k=-1,
-    # == every_n_epochs=1 writes a new file at the end of each epoch
-    every_n_epochs=1,
+        save_top_k=1,
+        save_last=True,
     )
     callbacks.append(checkpoint_callback)
 
