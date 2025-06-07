@@ -8,102 +8,54 @@ class AdaptiveBlock(nn.Module):
     def __init__(
         self,
         channels: int,
-        hidden_ratio: float,
+        hidden_ratio: float,  # Keeping for compatibility but not used
         height: int,
         width: int,
-        rank: int = 8,
-        dropout: float = 0.1,
+        rank: int = 8,  # Keeping for compatibility but not used
+        dropout: float = 0.1,  # Keeping for compatibility but not used
         num_positions: int = 1  # number of ResBlocks in this stage
     ):
         super().__init__()
         self.C = channels
         self.H = height
         self.W = width
-        self.r = rank
-        self.dropout_p = dropout
         self.num_positions = num_positions
 
-        hidden_channels = int(channels * hidden_ratio)
-        if hidden_channels == 0:
-            raise ValueError("hidden_ratio too small → hidden_channels = 0")
+        # 2D Positional embeddings: one 2D embedding per ResBlock position
+        # Shape = (num_positions, C, H, W)
+        self.pos_emb_2d = nn.Parameter(torch.zeros(num_positions, channels, height, width))
+        nn.init.normal_(self.pos_emb_2d, mean=0.0, std=0.02)
 
-        # Positional embeddings: one vector per ResBlock position
-        # Shape = (num_positions, C)
-        self.pos_emb = nn.Parameter(torch.zeros(num_positions, channels))
-        nn.init.normal_(self.pos_emb, mean=0.0, std=0.02)
-
-        # 1) MLP that maps (B, C) → (B, C), using GELU + Dropout
-        self.mlp = nn.Sequential(
-            nn.Linear(channels, hidden_channels, bias=False),
-            nn.GELU(),
-            nn.Dropout(p=self.dropout_p, inplace=True),
-            nn.Linear(hidden_channels, channels, bias=False),
-            nn.GELU(),
-            nn.Dropout(p=self.dropout_p, inplace=True),
-        )
-
-        # Optimized: use separate linear layers for each channel instead of expansion
-        self.fc_A = nn.Linear(channels, height * rank, bias=False)
-        self.fc_B = nn.Linear(channels, rank * width, bias=False)
-
-        # Kaiming init for all Linear layers in this block
-        for module in self.mlp:
-            if isinstance(module, nn.Linear):
-                nn.init.kaiming_uniform_(module.weight, a=math.sqrt(5))
-
+        # First Conv1x1 to create intermediate representation
+        self.mask_conv = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False)
+        
+        # Initialize conv1x1 layers
         nn.init.kaiming_uniform_(
-            self.fc_A.weight,
+            self.mask_conv.weight,
             mode='fan_in',
             nonlinearity='relu'
         )
-
-        nn.init.kaiming_uniform_(
-            self.fc_B.weight,
-            mode='fan_in',
-            nonlinearity='relu'
-        )
-
-    def _match_channels(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        If input has fewer than self.C channels, pad with zeros.
-        If input has more, slice off the extras.
-        """
-        B, C_in, H, W = x.shape
-        if C_in < self.C:
-            pad = torch.zeros((B, self.C - C_in, H, W),
-                              device=x.device, dtype=x.dtype)
-            x = torch.cat([x, pad], dim=1)
-        elif C_in > self.C:
-            x = x[:, :self.C, :, :]
-        return x
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         """
-        Optimized forward pass with reduced memory allocations.
+        Forward pass:
+        1. Add 2D positional encoding to input feature map
+        2. Apply first conv1x1
+        3. Apply ReLU activation
+        4. Apply second conv1x1 to create mask
+        5. Apply sigmoid activation
         """
-        x = self._match_channels(x)
         B, C, H, W = x.shape
-        assert C == self.C, f"Got C={C}, expected {self.C}"
-        if H != self.H or W != self.W:
-            raise RuntimeError(f"Expected spatial=({self.H},{self.W}), got ({H},{W})")
-
-        y = x.mean(dim=[2, 3])  # shape = (B, C)
-
-        y = y + self.pos_emb[pos]
-
-        y_rep = y.unsqueeze(1).expand(B, C, C).contiguous().view(B * C, C)  # (B*C, C)
-
-        y_prime = self.mlp(y_rep)   # shape = (B*C, C)
-
-        A_flat = self.fc_A(y_prime)  # (B*C, H·r)
-        B_flat = self.fc_B(y_prime)  # (B*C, r·W)
         
-        A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
-        Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
+        # Ensure input dimensions match expected dimensions
+        if C != self.C or H != self.H or W != self.W:
+            raise RuntimeError(f"Expected input shape=({self.C},{self.H},{self.W}), got ({C},{H},{W})")
 
-        M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)  # (B, C, H, W)
+        x_with_pos = x + self.pos_emb_2d[pos]  # (B, C, H, W)
 
-        return torch.sigmoid(M)
+        mask = self.mask_conv(x_with_pos)  # (B, C, H, W)
+
+        return torch.sigmoid(mask)
 
 
 class AdaptBottleneck(nn.Module):
