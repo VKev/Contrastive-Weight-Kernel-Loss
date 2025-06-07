@@ -87,29 +87,22 @@ class AdaptiveBlock(nn.Module):
         if H != self.H or W != self.W:
             raise RuntimeError(f"Expected spatial=({self.H},{self.W}), got ({H},{W})")
 
-        # 1) Global average per‐channel → y ∈ (B, C)
         y = x.mean(dim=[2, 3])  # shape = (B, C)
 
-        # 1.5) Add positional embedding for this ResBlock (in-place)
         y = y + self.pos_emb[pos]
 
-        # 2) Channel replication: (B, C) -> (B*C, C)
         y_rep = y.unsqueeze(1).expand(B, C, C).contiguous().view(B * C, C)  # (B*C, C)
 
-        # 3) MLP on replicated channels → y_prime ∈ (B*C, C)
         y_prime = self.mlp(y_rep)   # shape = (B*C, C)
 
-        # 4) Linear transformations
         A_flat = self.fc_A(y_prime)  # (B*C, H·r)
         B_flat = self.fc_B(y_prime)  # (B*C, r·W)
         
-        # 5) Reshape to proper dimensions
         A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
         Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
 
         M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)  # (B, C, H, W)
 
-        # Sigmoid activation for final attention map
         return torch.sigmoid(M)
 
 

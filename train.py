@@ -35,6 +35,19 @@ from model.diversified.div_resnet import DiversifiedResNet50
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
+def set_seed(seed):
+    """Set all random seeds for reproducibility."""
+    print(f"Setting random seed to: {seed}")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    pl.seed_everything(seed, workers=True)
+
+
 class DataModule(pl.LightningDataModule):
     def __init__(self, args):
         super().__init__()
@@ -451,6 +464,7 @@ def parse_args():
         default=1,
         help="Weight for mask‐penalty term (only used if model=resnet50_adapt)",
     )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
     args = parser.parse_args()
 
@@ -474,6 +488,9 @@ def build_model(args):
 
 def main():
     args = parse_args()
+    
+    # Set seed for reproducibility
+    set_seed(args.seed)
 
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu")
