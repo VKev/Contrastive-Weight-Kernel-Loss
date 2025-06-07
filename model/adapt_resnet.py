@@ -93,22 +93,23 @@ class AdaptiveBlock(nn.Module):
         # 1.5) Add positional embedding for this ResBlock (in-place)
         y = y + self.pos_emb[pos]
 
-        # 2) MLP on the pooled vector → y′ ∈ (B, C)
-        y_prime = self.mlp(y)   # shape = (B, C)
+        # 2) Channel replication: (B, C) -> (B*C, C)
+        y_rep = y.unsqueeze(1).expand(B, C, C).contiguous().view(B * C, C)  # (B*C, C)
 
-        # 3) Optimized: directly apply linear transformations per channel
-        # Instead of expanding to (B*C, C), we use broadcasting more efficiently
-        A_flat = self.fc_A(y_prime)  # (B, H·r)
-        B_flat = self.fc_B(y_prime)  # (B, r·W)
+        # 3) MLP on replicated channels → y_prime ∈ (B*C, C)
+        y_prime = self.mlp(y_rep)   # shape = (B*C, C)
+
+        # 4) Linear transformations
+        A_flat = self.fc_A(y_prime)  # (B*C, H·r)
+        B_flat = self.fc_B(y_prime)  # (B*C, r·W)
         
-        # Reshape to get per-channel matrices
-        A = A_flat.view(B, 1, self.H, self.r).expand(B, C, self.H, self.r)  # (B, C, H, r)
-        Bv = B_flat.view(B, 1, self.r, self.W).expand(B, C, self.r, self.W)  # (B, C, r, W)
+        # 5) Reshape to proper dimensions
+        A = A_flat.view(B, C, self.H, self.r)  # (B, C, H, r)
+        Bv = B_flat.view(B, C, self.r, self.W)  # (B, C, r, W)
 
-        # 4) Perform per‐channel matmul: (H, r) @ (r, W) → (H, W)
-        M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)
+        M = torch.einsum('b c i k, b c k j -> b c i j', A, Bv)  # (B, C, H, W)
 
-        # 5) Sigmoid activation (in-place for memory efficiency)
+        # Sigmoid activation for final attention map
         return torch.sigmoid(M)
 
 
