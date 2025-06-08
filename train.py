@@ -29,8 +29,9 @@ from util import (
     transform_imagenet_train,
     transform_imagenet_val,
 )
-from model import ResNet50, LeNet5, AdaptResNet50
+from model import ResNet50, LeNet5
 from model.diversified.div_resnet import DiversifiedResNet50
+from model.adapt_resnet import resnet20, resnet32, resnet44, resnet56, resnet110, resnet1202
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -175,12 +176,87 @@ class Model(pl.LightningModule):
         if args.model.lower() == "resnet50":
             self.model = ResNet50(num_classes=self.num_classes, channels=channels)
 
-        elif args.model.lower() == "resnet50_adapt":
-            # AdaptResNet50 returns (logits, masks)
-            self.model = AdaptResNet50(
+        elif args.model.lower() == "resnet20":
+            self.model = resnet20(
                 num_classes=self.num_classes,
-                channels=channels,
-                hidden_ratio=0.25,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet32":
+            self.model = resnet32(
+                num_classes=self.num_classes,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet44":
+            self.model = resnet44(
+                num_classes=self.num_classes,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet56":
+            self.model = resnet56(
+                num_classes=self.num_classes,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet110":
+            self.model = resnet110(
+                num_classes=self.num_classes,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet1202":
+            self.model = resnet1202(
+                num_classes=self.num_classes,
+                use_adaptive_masks=False,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet20_adapt":
+            self.model = resnet20(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet32_adapt":
+            self.model = resnet32(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet44_adapt":
+            self.model = resnet44(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet56_adapt":
+            self.model = resnet56(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet110_adapt":
+            self.model = resnet110(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
+                input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
+            )
+
+        elif args.model.lower() == "resnet1202_adapt":
+            self.model = resnet1202(
+                num_classes=self.num_classes,
+                use_adaptive_masks=True,
                 input_size=32 if args.dataset in ["cifar10", "cifar100"] else 224,
             )
 
@@ -239,7 +315,18 @@ class Model(pl.LightningModule):
         elif self.args.model.lower() in [
             "resnet50_diversified",
             "resnet50",
-            "resnet50_adapt",
+            "resnet20",
+            "resnet32",
+            "resnet44",
+            "resnet56",
+            "resnet110",
+            "resnet1202",
+            "resnet20_adapt",
+            "resnet32_adapt", 
+            "resnet44_adapt",
+            "resnet56_adapt",
+            "resnet110_adapt",
+            "resnet1202_adapt",
         ]:
             optimizer = optim.SGD(
                 self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=5e-4
@@ -287,8 +374,10 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
 
-        # If using AdaptResNet50, forward() returns (logits, masks)
-        if self.args.model.lower() == "resnet50_adapt":
+        # If using any adaptive ResNet, forward() returns (logits, masks)
+        adaptive_models = ["resnet20_adapt", "resnet32_adapt", 
+                          "resnet44_adapt", "resnet56_adapt", "resnet110_adapt", "resnet1202_adapt"]
+        if self.args.model.lower() in adaptive_models:
             logits, masks = self.model(x)
         else:
             logits = self.model(x)
@@ -314,7 +403,8 @@ class Model(pl.LightningModule):
         if self.hparams["contrastive_kernel_loss"]:
             total_loss = total_loss + self.hparams["alpha"] * kernel_loss
 
-        if self.args.model.lower() == "resnet50_adapt":
+        # 3) (Optional) Mask penalty for adaptive models only
+        if self.args.model.lower() in adaptive_models and masks is not None:
             per_mask_losses = []
             for i, mask in enumerate(masks):
                 penalty_mask = F.relu(1 - mask)
@@ -385,7 +475,12 @@ class Model(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx: int = 0):
         x, y = batch
-        logits = self.model(x) if self.args.model.lower() != "resnet50_adapt" else self.model(x)[0]
+        adaptive_models = ["resnet20_adapt", "resnet32_adapt", 
+                          "resnet44_adapt", "resnet56_adapt", "resnet110_adapt", "resnet1202_adapt"]
+        if self.args.model.lower() in adaptive_models:
+            logits, _ = self.model(x)  # Ignore masks in validation
+        else:
+            logits = self.model(x)
 
         cls_loss = self.cls_criterion(logits, y)
         if self.hparams["contrastive_kernel_loss"]:
@@ -433,7 +528,12 @@ class Model(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, y = batch
-        logits = self.model(x) if self.args.model.lower() != "resnet50_adapt" else self.model(x)[0]
+        adaptive_models = ["resnet20_adapt", "resnet32_adapt", 
+                          "resnet44_adapt", "resnet56_adapt", "resnet110_adapt", "resnet1202_adapt"]
+        if self.args.model.lower() in adaptive_models:
+            logits, _ = self.model(x)  # Ignore masks in test
+        else:
+            logits = self.model(x)
         loss = self.cls_criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         acc = (preds == y).float().mean()
@@ -452,7 +552,7 @@ def parse_args():
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--margin", type=float, default=8, help="Margin for contrastive loss")
-    parser.add_argument("--model", type=str, default="resnet50", help="Model architecture")
+    parser.add_argument("--model", type=str, default="resnet50", help="Model architecture (resnet50, resnet20, resnet32, resnet44, resnet56, resnet110, resnet1202, resnet20_adapt, resnet32_adapt, resnet44_adapt, resnet56_adapt, resnet110_adapt, resnet1202_adapt, etc.)")
     parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
     parser.add_argument("--dataset", choices=["mnist", "cifar10"], default="mnist", help="Dataset to use")
     parser.add_argument("--save_every", type=int, default=10, help="Save checkpoint every n epochs")
@@ -525,8 +625,8 @@ def main():
         + "-{epoch}-{test_acc:.4f}",
         monitor="test/epoch_acc",
         mode="max",
-        save_top_k=1,
-        save_last=True,
+        save_top_k=-1,
+        every_n_epochs=1,
     )
     callbacks.append(checkpoint_callback)
 

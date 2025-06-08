@@ -6,3 +6,4 @@
 *.pth
 *.ckpt
 **/*.pth
+lightning_logs/*
