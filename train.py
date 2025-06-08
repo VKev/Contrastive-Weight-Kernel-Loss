@@ -320,7 +320,7 @@ class Model(pl.LightningModule):
                 penalty_mask = F.relu(1 - mask)
                 per_mask_mse = (penalty_mask).mean()
                 self.log(
-                    f"train/mask_penalty_{i}", per_mask_mse, on_step=True, on_epoch=False
+                    f"loss/mask_penalty_{i}", per_mask_mse, on_step=True, on_epoch=False
                 )
                 per_mask_losses.append(per_mask_mse)
 
