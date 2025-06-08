@@ -40,29 +40,28 @@ __all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110'
 class AdaptiveBlock(nn.Module):
     def __init__(
         self,
-        channels: int,
-        height: int,
-        width: int,
-        num_positions: int = 1,  # number of ResBlocks in this stage
-        reduction_ratio: int = 4
+        max_channels: int = 64,  # Maximum channels across all layers
+        total_positions: int = 18,  # Total number of ResBlocks across all layers
     ):
         super().__init__()
-        self.C = channels
-        self.H = height
-        self.W = width
-        self.num_positions = num_positions
+        self.max_channels = max_channels
+        self.total_positions = total_positions
 
-        self.pos_emb_2d = nn.Parameter(torch.zeros(num_positions, channels, height, width))
-        nn.init.xavier_normal_(self.pos_emb_2d)
+        # Learnable position embeddings for each block position
+        # We'll dynamically slice these based on input dimensions
+        self.pos_emb_1d = nn.Parameter(torch.zeros(total_positions, max_channels))
+        nn.init.xavier_normal_(self.pos_emb_1d)
 
+        # Adaptive conv layers that work with variable input sizes
         self.mask_conv = nn.Sequential(
-            nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.ReLU(inplace=True),
-            # nn.Conv2d(channels // reduction_ratio, channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(max_channels, max_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(max_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(max_channels, max_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(max_channels),
             nn.Sigmoid()
         )
         
-        # Initialize conv layers with He initialization (best for ReLU)
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -70,29 +69,40 @@ class AdaptiveBlock(nn.Module):
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         B, C, H, W = x.shape
         
-        if C != self.C or H != self.H or W != self.W:
-            raise RuntimeError(f"Expected input shape=({self.C},{self.H},{self.W}), got ({C},{H},{W})")
-
-        x_with_pos = x + self.pos_emb_2d[pos]  # (B, C, H, W)
-
-        mask = self.mask_conv(x_with_pos)  # (B, C, H, W)
+        # Pad channels to max_channels if needed
+        if C < self.max_channels:
+            x_padded = torch.zeros(B, self.max_channels, H, W, device=x.device, dtype=x.dtype)
+            x_padded[:, :C, :, :] = x
+        else:
+            x_padded = x
+        
+        # Add position embedding (broadcast across spatial dimensions)
+        pos_emb = self.pos_emb_1d[pos]  # (max_channels,)
+        pos_emb = pos_emb.view(1, self.max_channels, 1, 1)  # (1, max_channels, 1, 1)
+        x_with_pos = x_padded + pos_emb
+        
+        # Generate mask
+        mask_full = self.mask_conv(x_with_pos)  # (B, max_channels, H, W)
+        
+        # Slice mask to match original input channels
+        mask = mask_full[:, :C, :, :]  # (B, C, H, W)
 
         return mask
 
 
 class MaskWrapper(nn.Module):
     """
-    Wraps a shared AdaptiveBlock and a fixed position index so that calling
-    this module returns shared_ab(x, position).
+    Wraps a shared AdaptiveBlock and a fixed global position index so that calling
+    this module returns shared_ab(x, global_position).
     """
-    def __init__(self, shared_ab: AdaptiveBlock, position: int):
+    def __init__(self, shared_ab: AdaptiveBlock, global_position: int):
         super().__init__()
         self.shared_ab = shared_ab
-        self.position = position
+        self.global_position = global_position
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Call the shared AdaptiveBlock with the stored position
-        return self.shared_ab(x, self.position)
+        # Call the shared AdaptiveBlock with the stored global position
+        return self.shared_ab(x, self.global_position)
 
 def _weights_init(m):
     classname = m.__class__.__name__
@@ -166,41 +176,41 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         
+        # Create single shared adaptive block for all layers if using adaptive masks
+        self.shared_adaptive_block = None
+        self.global_block_position = 0  # Track global position across all layers
+        
+        if self.use_adaptive_masks:
+            total_blocks = sum(num_blocks)  # Total number of ResBlocks across all layers
+            max_channels = 64  # Maximum channels in layer3
+            self.shared_adaptive_block = AdaptiveBlock(
+                max_channels=max_channels,
+                total_positions=total_blocks
+            )
+        
         # Calculate spatial dimensions for each layer (CIFAR-10 starts at 32x32)
         spatial = input_size  # 32
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1, height=spatial, width=spatial)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         # After layer1, spatial remains 32
-        spatial = spatial // 2  # 16 after stride=2
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2, height=spatial, width=spatial)
-        spatial = spatial // 2  # 8 after stride=2
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2, height=spatial, width=spatial)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        # After layer2, spatial becomes 16
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        # After layer3, spatial becomes 8
         
         self.linear = nn.Linear(64, num_classes)
 
         self.apply(_weights_init)
 
-    def _make_layer(self, block, planes, num_blocks, stride, height, width):
+    def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
-        
-        # Create shared AdaptiveBlock for this layer if using adaptive masks
-        shared_ab = None
-        if self.use_adaptive_masks:
-            ab_channels = planes * block.expansion  # For BasicBlock, expansion = 1
-            shared_ab = AdaptiveBlock(
-                ab_channels,
-                height,
-                width,
-                num_positions=num_blocks
-            )
-            # Register the shared AdaptiveBlock so its parameters are tracked
-            self.add_module(f"adapt_ab_{planes}", shared_ab)
         
         for block_idx, stride in enumerate(strides):
             # Create mask wrapper if using adaptive masks
             mask_fn = None
-            if self.use_adaptive_masks:
-                mask_fn = MaskWrapper(shared_ab, block_idx)
+            if self.use_adaptive_masks and self.shared_adaptive_block is not None:
+                mask_fn = MaskWrapper(self.shared_adaptive_block, self.global_block_position)
+                self.global_block_position += 1  # Increment global position
                 
             layers.append(block(self.in_planes, planes, stride, mask_fn=mask_fn))
             self.in_planes = planes * block.expansion
@@ -298,7 +308,7 @@ if __name__ == "__main__":
             logits, masks = result
             print(f"Output logits shape: {logits.shape}")
             print(f"Number of masks returned: {len(masks)}")
-            for i, m in enumerate(masks[:3]):
+            for i, m in enumerate(masks):
                 print(f"  mask {i} shape = {m.shape}")
         else:
             print(f"Output logits shape: {result.shape}")

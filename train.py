@@ -419,7 +419,7 @@ class Model(pl.LightningModule):
             else:
                 mask_penalty = torch.tensor(0.0, device=self.device)
 
-            if self.current_epoch < 40:
+            if self.current_epoch < 35:
                 total_loss = total_loss + self.mask_penalty_weight * mask_penalty
             self.log(
                 "train/mask_penalty", mask_penalty, on_step=True, on_epoch=False
