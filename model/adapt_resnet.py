@@ -13,7 +13,8 @@ class AdaptiveBlock(nn.Module):
         width: int,
         rank: int = 8,  # Keeping for compatibility but not used
         dropout: float = 0.1,  # Keeping for compatibility but not used
-        num_positions: int = 1  # number of ResBlocks in this stage
+        num_positions: int = 1,  # number of ResBlocks in this stage
+        reduction_ratio: int = 4
     ):
         super().__init__()
         self.C = channels
@@ -21,33 +22,24 @@ class AdaptiveBlock(nn.Module):
         self.W = width
         self.num_positions = num_positions
 
-        # 2D Positional embeddings: one 2D embedding per ResBlock position
-        # Shape = (num_positions, C, H, W)
         self.pos_emb_2d = nn.Parameter(torch.zeros(num_positions, channels, height, width))
-        nn.init.normal_(self.pos_emb_2d, mean=0.0, std=0.02)
+        nn.init.xavier_normal_(self.pos_emb_2d)
 
-        # First Conv1x1 to create intermediate representation
-        self.mask_conv = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False)
-        
-        # Initialize conv1x1 layers
-        nn.init.kaiming_uniform_(
-            self.mask_conv.weight,
-            mode='fan_in',
-            nonlinearity='relu'
+        self.mask_conv = nn.Sequential(
+            nn.Conv2d(channels, channels // reduction_ratio, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels // reduction_ratio, channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Sigmoid()
         )
+        
+        # Initialize conv layers with He initialization (best for ReLU)
+        for m in self.mask_conv.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
-        """
-        Forward pass:
-        1. Add 2D positional encoding to input feature map
-        2. Apply first conv1x1
-        3. Apply ReLU activation
-        4. Apply second conv1x1 to create mask
-        5. Apply sigmoid activation
-        """
         B, C, H, W = x.shape
         
-        # Ensure input dimensions match expected dimensions
         if C != self.C or H != self.H or W != self.W:
             raise RuntimeError(f"Expected input shape=({self.C},{self.H},{self.W}), got ({C},{H},{W})")
 
@@ -55,7 +47,7 @@ class AdaptiveBlock(nn.Module):
 
         mask = self.mask_conv(x_with_pos)  # (B, C, H, W)
 
-        return torch.sigmoid(mask)
+        return mask
 
 
 class AdaptBottleneck(nn.Module):
@@ -102,11 +94,9 @@ class AdaptBottleneck(nn.Module):
         if self.i_downsample is not None:
             identity = self.i_downsample(identity)
 
-        # ------------- NEW: compute & store mask -------------
         mask = self.mask_fn(identity)        # (B, C', H', W')
         self.last_mask = mask
 
-        # Optimized: use in-place multiplication and addition where possible
         out.add_(mask * identity)
         return self.relu(out)
 
