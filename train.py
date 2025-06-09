@@ -334,14 +334,14 @@ class Model(pl.LightningModule):
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="max", factor=0.1, patience=5
+                optimizer, mode="min", factor=0.1, patience=5
             )
 
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "train/acc_epoch",
+                    "monitor": "train/loss_epoch",
                     "interval": "epoch",
                     "frequency": 1,
                 },
