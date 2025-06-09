@@ -334,14 +334,14 @@ class Model(pl.LightningModule):
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="min", factor=0.1, patience=5
+                optimizer, mode="max", factor=0.1, patience=5
             )
 
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "train/acc",
+                    "monitor": "train/acc_epoch",
                     "interval": "epoch",
                     "frequency": 1,
                 },
@@ -431,7 +431,7 @@ class Model(pl.LightningModule):
         acc = (preds == y).float().mean()
 
         self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=False)
-        self.log("train/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/acc", acc, on_step=True, on_epoch=True, prog_bar=True)
         
         if self.hparams["contrastive_kernel_loss"]:
             self.log("train/cls_loss", cls_loss, on_step=True, on_epoch=True, prog_bar=False)
