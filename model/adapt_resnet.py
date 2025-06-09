@@ -54,14 +54,33 @@ class AdaptiveBlock(nn.Module):
         # Learnable 2D position embeddings (3D: channels, height, width)
         self.pos_emb_2d = nn.Parameter(torch.zeros(channels, height, width))
         nn.init.xavier_normal_(self.pos_emb_2d)
+        # if num_positions >= 5:
+        #     self.pos_emb_2d_1 = nn.Parameter(torch.zeros(channels, height, width))
+        #     nn.init.xavier_normal_(self.pos_emb_2d_1)
 
         # Adaptive conv layers for this specific layer
-        self.mask_conv = nn.Sequential(
-            nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Sigmoid()
-        )
+
+        if num_positions >= 5:
+            channel_scale = num_positions/5
+            channels_scale = min(channel_scale, 3)
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(channels),
+                nn.Sigmoid()
+            )
+        else:
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
+                nn.Sigmoid()
+            )
         
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
@@ -75,6 +94,7 @@ class AdaptiveBlock(nn.Module):
         
         # Add 2D position embedding (already matches spatial dimensions)
         pos_emb = self.pos_emb_2d.unsqueeze(0)  # (1, channels, height, width)
+
         x_with_pos = x + pos_emb * x
         
         # Generate mask
@@ -262,61 +282,88 @@ def resnet1202(num_classes=10, use_adaptive_masks=True, input_size=32):
     return ResNet(BasicBlock, [200, 200, 200], num_classes=num_classes, use_adaptive_masks=use_adaptive_masks, input_size=input_size)
 
 
-def test(net):
-    import numpy as np
-    total_params = 0
+from ptflops import get_model_complexity_info
+import copy, io, contextlib
 
-    for x in filter(lambda p: p.requires_grad, net.parameters()):
-        total_params += np.prod(x.data.numpy().shape)
-    print("Total number of params", total_params)
-    print("Total layers", len(list(filter(lambda p: p.requires_grad and len(p.data.size())>1, net.parameters()))))
+def clean_ptflops_markers(model):
+    for m in model.modules():
+        for attr in ("__flops__", "__params__"):
+            if attr in m.__dict__:
+                del m.__dict__[attr]
 
+def compute_and_print_flops(orig_model, name, input_res=(3,32,32)):
+    # 1) make a fresh CPU copy and clean any old markers
+    model = copy.deepcopy(orig_model).cpu().eval()
+    clean_ptflops_markers(model)
 
+    # 2) suppress ptflops stdout
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        macs, params = get_model_complexity_info(
+            model, input_res,
+            as_strings=False,
+            print_per_layer_stat=False,
+            verbose=False
+        )
+
+    flops  = 2 * macs       # 1 MAC = 2 FLOPs
+    tflops = flops / 1e12
+
+    # 3) print clean summary
+    print(f"{name}  |  Params: {params:,}  |  "
+          f"MACs: {macs/1e6:.2f}M  |  "
+          f"FLOPs: {flops/1e9:.2f}G  |  "
+          f"TFLOPs: {tflops:.4f}\n")
+    
+    
 if __name__ == "__main__":
-    # Test standard ResNets
+    device      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    batch_size  = 4
+    input_size  = 32
+    num_classes = 10
+    dummy_input = torch.randn(batch_size, 3, input_size, input_size, device=device)
+
+    # 1) Standard ResNets
+    print("="*80)
+    print("Standard ResNets")
+    print("="*80)
     for net_name in __all__:
-        if net_name.startswith('resnet'):
-            print(f"Standard {net_name}")
-            test(globals()[net_name](use_adaptive_masks=False))
-            print()
-            
+        if not net_name.startswith("resnet"):
+            continue
+        print(f"-- Standard {net_name} --")
+        model = globals()[net_name](
+            use_adaptive_masks=False,
+            num_classes=num_classes,
+            input_size=input_size
+        ).to(device)
+        compute_and_print_flops(model, f"Standard {net_name}")
+
+    # 2) Adaptive ResNets (with param ratio)
+    print("="*80)
+    print("Adaptive ResNets")
+    print("="*80)
     for net_name in __all__:
-        if net_name.startswith('resnet'):
-            print(f"Adaptive {net_name}")
-            test(globals()[net_name](use_adaptive_masks=True))
-            print()
-    
-    # Test adaptive ResNets
-    print("="*50)
-    print("Testing Adaptive ResNets:")
-    print("="*50)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = resnet20(num_classes=10, use_adaptive_masks=True, input_size=32).to(device)
-    
-    dummy = torch.randn(4, 3, 32, 32, device=device)
-    with torch.no_grad():
-        result = model(dummy)
-        if isinstance(result, tuple):
-            logits, masks = result
-            print(f"Output logits shape: {logits.shape}")
-            print(f"Number of masks returned: {len(masks)}")
-            for i, m in enumerate(masks):
-                print(f"  mask {i} shape = {m.shape}")
-        else:
-            print(f"Output logits shape: {result.shape}")
-    
-    # Count adaptive parameters
-    print("\nTrainable parameters in shared AdaptiveBlocks:")
-    total_adaptive_params = 0
-    for name, module in model.named_modules():
-        if isinstance(module, AdaptiveBlock):
-            param_count = sum(p.numel() for p in module.parameters() if p.requires_grad)
-            total_adaptive_params += param_count
-            print(f"{name}: {param_count} parameters")
-    print(f"Total adaptive parameters: {total_adaptive_params}")
-    
-    # Total model parameters
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total model parameters: {total_params}")
-    print(f"Adaptive params ratio: {total_adaptive_params/total_params:.4f}")
+        if not net_name.startswith("resnet"):
+            continue
+        print(f"-- Adaptive {net_name} --")
+        model = globals()[net_name](
+            use_adaptive_masks=True,
+            num_classes=num_classes,
+            input_size=input_size
+        ).to(device)
+
+        # FLOPs/TFLOPs summary
+        compute_and_print_flops(model, f"Adaptive {net_name}")
+
+        # Compute adaptive‐block parameter ratio
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        adaptive_params = sum(
+            p.numel()
+            for module in model.modules() if isinstance(module, AdaptiveBlock)
+            for p in module.parameters() if p.requires_grad
+        )
+        ratio = adaptive_params / total_params if total_params > 0 else 0.0
+
+        print(f"AdaptiveBlock params  : {adaptive_params:,}")
+        print(f"Total model params    : {total_params:,}")
+        print(f"Adaptive params ratio : {ratio:.4f}\n")
