@@ -51,8 +51,8 @@ class AdaptiveBlock(nn.Module):
         self.width = width
         self.num_positions = num_positions
 
-        # Learnable 2D position embeddings for each block position in this layer
-        self.pos_emb_2d = nn.Parameter(torch.zeros(num_positions, channels, height, width))
+        # Learnable 2D position embeddings (3D: channels, height, width)
+        self.pos_emb_2d = nn.Parameter(torch.zeros(channels, height, width))
         nn.init.xavier_normal_(self.pos_emb_2d)
 
         # Adaptive conv layers for this specific layer
@@ -74,9 +74,8 @@ class AdaptiveBlock(nn.Module):
             raise RuntimeError(f"Expected input shape=({self.channels},{self.height},{self.width}), got ({C},{H},{W})")
         
         # Add 2D position embedding (already matches spatial dimensions)
-        pos_emb = self.pos_emb_2d[pos]  # (channels, height, width)
-        pos_emb = pos_emb.unsqueeze(0)  # (1, channels, height, width)
-        x_with_pos = x + pos_emb
+        pos_emb = self.pos_emb_2d.unsqueeze(0)  # (1, channels, height, width)
+        x_with_pos = x + pos_emb * x
         
         # Generate mask
         mask = self.mask_conv(x_with_pos)  # (B, channels, H, W)
