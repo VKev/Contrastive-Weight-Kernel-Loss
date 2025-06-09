@@ -46,6 +46,7 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)
     pl.seed_everything(seed, workers=True)
 
 
@@ -329,7 +330,7 @@ class Model(pl.LightningModule):
             "resnet1202_adapt",
         ]:
             optimizer = optim.SGD(
-                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=5e-4
+                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=0.0001
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -340,7 +341,7 @@ class Model(pl.LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "train/epoch_loss",
+                    "monitor": "train/acc",
                     "interval": "epoch",
                     "frequency": 1,
                 },
@@ -425,16 +426,16 @@ class Model(pl.LightningModule):
                 "train/mask_penalty", mask_penalty, on_step=True, on_epoch=False
             )
 
-        # 4) Logging & return
-        if not hasattr(self, "_train_losses"):
-            self._train_losses = {"total_loss": [], "cls_loss": [], "kernel_loss": []}
+        # 4) Compute accuracy and log metrics
+        preds = torch.argmax(logits, dim=1)
+        acc = (preds == y).float().mean()
 
-        self._train_losses["total_loss"].append(total_loss)
-
-        self.log("train/loss", total_loss, on_step=True, on_epoch=False)
+        self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=False)
+        self.log("train/acc", acc, on_step=True, on_epoch=True, prog_bar=True)
+        
         if self.hparams["contrastive_kernel_loss"]:
-            self.log("train/cls_loss", cls_loss, on_step=True, on_epoch=False)
-            self.log("train/kernel_loss", kernel_loss, on_step=True, on_epoch=False)
+            self.log("train/cls_loss", cls_loss, on_step=True, on_epoch=True, prog_bar=False)
+            self.log("train/kernel_loss", kernel_loss, on_step=True, on_epoch=True, prog_bar=False)
 
         optimizer = self.optimizers()  # returns a list, take the first optimizer
         current_lr = optimizer.param_groups[0]["lr"]
@@ -468,10 +469,7 @@ class Model(pl.LightningModule):
                     prog_bar=False,
                 )
 
-    def on_train_epoch_end(self):
-        avg_total_loss = torch.stack(self._train_losses["total_loss"]).mean()
-        self.log("train/epoch_loss", avg_total_loss, prog_bar=True)
-        self._train_losses = {"total_loss": []}
+
 
     def validation_step(self, batch, batch_idx, dataloader_idx: int = 0):
         x, y = batch
@@ -504,12 +502,16 @@ class Model(pl.LightningModule):
         preds = torch.argmax(logits, dim=1)
         acc = (preds == y).float().mean()
         
-        split = "val" if dataloader_idx == 0 else "test"
-        self.log(f"{split}/loss", total_loss, on_step=False, on_epoch=True, prog_bar=False)
-        self.log(f"{split}/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+        if dataloader_idx == 0:  # Validation
+            self.log("val/loss", total_loss, on_step=False, on_epoch=True, prog_bar=False, add_dataloader_idx=False)
+            self.log("val/acc", acc, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+        else:  # Test
+            self.log("test/loss", total_loss, on_step=False, on_epoch=True, prog_bar=False, add_dataloader_idx=False) 
+            self.log("test/acc", acc, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+            self.log("test_acc", acc, on_step=False, on_epoch=True, prog_bar=False, add_dataloader_idx=False)  # For checkpoint monitoring
         
-        return {"loss": total_loss, "acc": acc}
-
+        return total_loss
+    
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, dataloader_idx=1)
 
@@ -594,7 +596,7 @@ def main():
         filename=f"{args.model}-{args.dataset}"
         + ("-ckl" if args.contrastive_kernel_loss else "")
         + "-{epoch}-{test_acc:.4f}",
-        monitor="test/epoch_acc",
+        monitor="test_acc",
         mode="max",
         save_top_k=-1,
         every_n_epochs=1,
@@ -603,7 +605,7 @@ def main():
 
     if args.early_stopping:
         early_stopping = EarlyStopping(
-            monitor="val/epoch_acc", patience=args.patience, mode="max", verbose=True
+            monitor="val/acc", patience=args.patience, mode="max", verbose=True
         )
         callbacks.append(early_stopping)
 
@@ -616,7 +618,7 @@ def main():
             resume="allow",
             offline=False,
         )
-    trainer = pl.Trainer(
+    trainer_kwargs = dict(
         max_epochs=args.num_epochs,
         logger=logger,
         callbacks=callbacks,
@@ -625,8 +627,18 @@ def main():
         log_every_n_steps=10,
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
-        deterministic=False,
     )
+
+    if torch.cuda.device_count() > 1:
+        trainer_kwargs.update(
+            strategy="ddp",
+            sync_batchnorm=True,
+            deterministic=True,
+        )
+    else:
+        trainer_kwargs["deterministic"] = True
+
+    trainer = pl.Trainer(**trainer_kwargs)
 
     shutil.rmtree("./wandb", ignore_errors=True)
     shutil.rmtree("./lightning_logs", ignore_errors=True)
