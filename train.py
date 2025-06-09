@@ -431,7 +431,7 @@ class Model(pl.LightningModule):
         acc = (preds == y).float().mean()
 
         self.log("train/loss", total_loss, on_step=True, on_epoch=True, prog_bar=False)
-        self.log("train/acc", acc, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
         
         if self.hparams["contrastive_kernel_loss"]:
             self.log("train/cls_loss", cls_loss, on_step=True, on_epoch=True, prog_bar=False)
