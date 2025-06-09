@@ -341,7 +341,7 @@ class Model(pl.LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "val/loss",
+                    "monitor": "train/loss_epoch",
                     "interval": "epoch",
                     "frequency": 1,
                 },
