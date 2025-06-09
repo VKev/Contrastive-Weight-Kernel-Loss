@@ -502,47 +502,16 @@ class Model(pl.LightningModule):
         )
 
         preds = torch.argmax(logits, dim=1)
+        acc = (preds == y).float().mean()
+        
         split = "val" if dataloader_idx == 0 else "test"
-        if not hasattr(self, "_stats"):
-            self._stats = {s: {"loss": [], "preds": [], "labels": []} for s in ("val", "test")}
+        self.log(f"{split}/loss", total_loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log(f"{split}/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+        
+        return {"loss": total_loss, "acc": acc}
 
-        self._stats[split]["loss"].append(total_loss)
-        self._stats[split]["preds"].append(preds)
-        self._stats[split]["labels"].append(y)
-
-        self.log(f"{split}/loss", total_loss, on_step=True, on_epoch=False)
-        return {"loss": total_loss, "split": split}
-
-    def on_validation_epoch_start(self):
-        self._stats = {
-            "val":  {"loss": [], "preds": [], "labels": []},
-            "test": {"loss": [], "preds": [], "labels": []},
-        }
-    
-    def on_validation_epoch_end(self):
-        for split, buf in self._stats.items():
-            if not buf["loss"]:
-                continue
-            avg_loss = torch.stack(buf["loss"]).mean()
-            acc = (torch.cat(buf["preds"]) == torch.cat(buf["labels"])).float().mean()
-            self.log(f"{split}/epoch_loss", avg_loss, prog_bar=False)
-            self.log(f"{split}/epoch_acc", acc, prog_bar=True)
-            if split == "test":
-                self.log("test_acc", acc, prog_bar=False)
-            for k in buf:
-                buf[k].clear()
-
-    def on_test_epoch_start(self):
-        self._stats = {
-            "val":  {"loss": [], "preds": [], "labels": []},
-            "test": {"loss": [], "preds": [], "labels": []},
-        }
-    
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx, dataloader_idx=1)
-
-    def on_test_epoch_end(self):
-        return self.on_validation_epoch_end()
 
 
 def parse_args():

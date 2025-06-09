@@ -3,7 +3,8 @@ import argparse
 import os
 import pytorch_lightning as pl
 from train import parse_args, Model, DataModule
-
+import torch
+torch.set_float32_matmul_precision('high')
 def parse_args():
     parser = argparse.ArgumentParser(description="Train model with PyTorch Lightning")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config")
@@ -43,8 +44,10 @@ def main():
 
     model = Model.load_from_checkpoint(
         checkpoint_path=args.resume,
-        args=args
+        args=args,
+        map_location="cuda"
     )
+    model.to("cuda")
     model.eval()
 
     dm = DataModule(args)
