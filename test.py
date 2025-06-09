@@ -11,7 +11,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--alpha", type=float, default=1, help="Alpha parameter")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
     parser.add_argument("--margin", type=float, default=8, help="Margin for contrastive loss")
     parser.add_argument("--model", type=str, default="resnet50", help="Model architecture")
     parser.add_argument("--mode", type=str, default="full-layer", help="full-layer or random-sampling")
@@ -21,6 +21,12 @@ def parse_args():
     parser.add_argument("--wandb", action="store_true", help="Use WandB logging")
     parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
     parser.add_argument("--patience", type=int, default=10, help="Patience for early stopping")
+    parser.add_argument(
+        "--mask_penalty_weight",
+        type=float,
+        default=1,
+        help="Weight for mask‐penalty term (only used if model=resnet50_adapt)",
+    )
 
     args = parser.parse_args()
     

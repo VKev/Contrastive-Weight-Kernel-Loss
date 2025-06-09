@@ -513,6 +513,12 @@ class Model(pl.LightningModule):
         self.log(f"{split}/loss", total_loss, on_step=True, on_epoch=False)
         return {"loss": total_loss, "split": split}
 
+    def on_validation_epoch_start(self):
+        self._stats = {
+            "val":  {"loss": [], "preds": [], "labels": []},
+            "test": {"loss": [], "preds": [], "labels": []},
+        }
+    
     def on_validation_epoch_end(self):
         for split, buf in self._stats.items():
             if not buf["loss"]:
@@ -526,21 +532,17 @@ class Model(pl.LightningModule):
             for k in buf:
                 buf[k].clear()
 
+    def on_test_epoch_start(self):
+        self._stats = {
+            "val":  {"loss": [], "preds": [], "labels": []},
+            "test": {"loss": [], "preds": [], "labels": []},
+        }
+    
     def test_step(self, batch, batch_idx):
-        x, y = batch
-        adaptive_models = ["resnet20_adapt", "resnet32_adapt", 
-                          "resnet44_adapt", "resnet56_adapt", "resnet110_adapt", "resnet1202_adapt"]
-        if self.args.model.lower() in adaptive_models:
-            logits, _ = self.model(x)  # Ignore masks in test
-        else:
-            logits = self.model(x)
-        loss = self.cls_criterion(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        acc = (preds == y).float().mean()
+        return self.validation_step(batch, batch_idx, dataloader_idx=1)
 
-        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/acc", acc, on_step=False, on_epoch=True, prog_bar=True)
-        return {"loss": loss, "acc": acc}
+    def on_test_epoch_end(self):
+        return self.on_validation_epoch_end()
 
 
 def parse_args():
