@@ -45,7 +45,7 @@ def main():
     model = Model.load_from_checkpoint(
         checkpoint_path=args.resume,
         args=args,
-        map_location="cuda"
+        map_location=torch.device("cpu"),
     )
     model.to("cuda")
     model.eval()
