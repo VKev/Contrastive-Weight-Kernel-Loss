@@ -330,7 +330,7 @@ class Model(pl.LightningModule):
             "resnet1202_adapt",
         ]:
             optimizer = optim.SGD(
-                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=0.0001
+                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=5e-4
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
