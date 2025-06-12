@@ -69,6 +69,14 @@ class AdaptiveBlock(nn.Module):
                 nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.Sigmoid()
             )
+            # self.mask_conv = nn.Sequential(
+            #     nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+            #     nn.ReLU(inplace=True),
+            #     nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+            #     nn.ReLU(inplace=True),
+            #     nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+            #     nn.Sigmoid()
+            # )
         else:
             self.mask_conv = nn.Sequential(
                 nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),

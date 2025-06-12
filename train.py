@@ -308,7 +308,7 @@ class Model(pl.LightningModule):
             optimizer = optim.AdamW(
                 self.parameters(),
                 lr=self.args.lr,
-                weight_decay=1e-2,
+                weight_decay=self.args.weight_decay,
                 betas=(0.9, 0.999),
                 eps=1e-8,
             )
@@ -330,7 +330,7 @@ class Model(pl.LightningModule):
             "resnet1202_adapt",
         ]:
             optimizer = optim.SGD(
-                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=0.0001
+                self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=self.args.weight_decay
             )
 
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -348,7 +348,7 @@ class Model(pl.LightningModule):
             }
 
         else:
-            optimizer = optim.Adam(self.parameters(), lr=self.args.lr)
+            optimizer = optim.Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
 
         return optimizer
 
@@ -420,7 +420,7 @@ class Model(pl.LightningModule):
             else:
                 mask_penalty = torch.tensor(0.0, device=self.device)
 
-            if self.current_epoch < 10:
+            if self.current_epoch < self.args.warm_up_mask_penalty:
                 total_loss = total_loss + self.mask_penalty_weight * mask_penalty
             self.log(
                 "train/mask_penalty", mask_penalty, on_step=True, on_epoch=False
@@ -520,7 +520,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train model with PyTorch Lightning")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config")
     parser.add_argument("--resume", type=str, default="", help="Checkpoint path to resume from")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=0.1, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=0.0001, help="Weight decay for optimizer")
     parser.add_argument("--alpha", type=float, default=1, help="Alpha parameter")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
@@ -539,6 +540,12 @@ def parse_args():
         type=float,
         default=1,
         help="Weight for mask‐penalty term (only used if model=resnet50_adapt)",
+    )
+    parser.add_argument(
+        "--warm_up_mask_penalty",
+        type=int,
+        default=35,
+        help="Number of warm-up epochs during which the mask penalty is applied",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
