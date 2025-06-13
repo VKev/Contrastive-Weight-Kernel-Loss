@@ -65,22 +65,14 @@ class AdaptiveBlock(nn.Module):
             channels_scale = min(channel_scale, 3)
             self.mask_conv = nn.Sequential(
                 nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-                nn.ReLU(inplace=True),
                 nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(inplace=True),
                 nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=3, stride=1, padding=1, bias=False),
-                nn.ReLU(inplace=True),
                 nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(inplace=True),
                 nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.Sigmoid()
             )
-            # self.mask_conv = nn.Sequential(
-            #     nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-            #     nn.ReLU(inplace=True),
-            #     nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-            #     nn.ReLU(inplace=True),
-            #     nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
-            #     nn.Sigmoid()
-            # )
         else:
             self.mask_conv = nn.Sequential(
                 nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
