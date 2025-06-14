@@ -643,7 +643,7 @@ def main():
             deterministic=True,
         )
     else:
-        trainer_kwargs["deterministic"] = True
+        trainer_kwargs["deterministic"] = False
 
     trainer = pl.Trainer(**trainer_kwargs)
 
