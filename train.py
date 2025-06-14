@@ -334,7 +334,7 @@ class Model(pl.LightningModule):
             )
 
             scheduler = optim.lr_scheduler.MultiStepLR(
-                optimizer, milestones=[100, 150], gamma=0.1
+                optimizer, milestones=[125, 125+31], gamma=0.1
             )
 
             return {
