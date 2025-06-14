@@ -33,7 +33,10 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 import torch
-from model.cbam import CBAM
+try:
+    from model.cbam import CBAM
+except:
+    from cbam import CBAM
 
 
 
@@ -54,8 +57,8 @@ class AdaptiveBlock(nn.Module):
         self.width = width
         self.num_positions = num_positions
 
-        # Learnable 2D position embeddings (3D: channels, height, width)
-        self.pos_emb_2d = nn.Parameter(torch.zeros(channels, height, width))
+        # Learnable 2D position embeddings (3D: 1, height, width)
+        self.pos_emb_2d = nn.Parameter(torch.zeros(1, height, width))
         nn.init.xavier_normal_(self.pos_emb_2d)
         
         # if num_positions >= 5:
@@ -67,10 +70,12 @@ class AdaptiveBlock(nn.Module):
         channel_scale = num_positions/3
         channels_scale = min(channel_scale, 3)
         self.mask_conv = nn.Sequential(
-            nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+            CBAM(channels + 1),
+            nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(int(channels*channels_scale)),
-            CBAM(int(channels*channels_scale)),
+            nn.ReLU(),
             nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(channels),
             nn.Sigmoid()
         )
     
@@ -84,10 +89,12 @@ class AdaptiveBlock(nn.Module):
         if C != self.channels or H != self.height or W != self.width:
             raise RuntimeError(f"Expected input shape=({self.channels},{self.height},{self.width}), got ({C},{H},{W})")
         
-        # Add 2D position embedding (already matches spatial dimensions)
-        pos_emb = self.pos_emb_2d.unsqueeze(0)  # (1, channels, height, width)
-
-        x_with_pos = x + pos_emb * x
+        # Create positional embedding channel: pos_emb_2d * x (where x is reduced to 1,H,W)
+        x_mean = x.mean(dim=1, keepdim=True)  # (B, 1, H, W) - average across channels
+        pos_emb_channel = self.pos_emb_2d.unsqueeze(0) * x_mean  # (B, 1, H, W)
+        
+        # Concatenate original x with positional embedding channel
+        x_with_pos = torch.cat([x, pos_emb_channel], dim=1)  # (B, C+1, H, W)
         
         # Generate mask
         mask = self.mask_conv(x_with_pos)  # (B, channels, H, W)
