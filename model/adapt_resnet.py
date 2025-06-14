@@ -32,7 +32,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
-from torch.autograd import Variable
+import torch
+from model.cbam import CBAM
+
+
 
 __all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
@@ -54,29 +57,23 @@ class AdaptiveBlock(nn.Module):
         # Learnable 2D position embeddings (3D: channels, height, width)
         self.pos_emb_2d = nn.Parameter(torch.zeros(channels, height, width))
         nn.init.xavier_normal_(self.pos_emb_2d)
+        
         # if num_positions >= 5:
         #     self.pos_emb_2d_1 = nn.Parameter(torch.zeros(channels, height, width))
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
 
         # Adaptive conv layers for this specific layer
 
-        if num_positions >= 5:
-            channel_scale = num_positions/5
-            channels_scale = min(channel_scale, 3)
-            self.mask_conv = nn.Sequential(
-                nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.Sigmoid()
-            )
-        else:
-            self.mask_conv = nn.Sequential(
-                nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.Sigmoid()
-            )
-        
+        channel_scale = num_positions/3
+        channels_scale = min(channel_scale, 3)
+        self.mask_conv = nn.Sequential(
+            nn.Conv2d(channels, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(int(channels*channels_scale)),
+            CBAM(int(channels*channels_scale)),
+            nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Sigmoid()
+        )
+    
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
