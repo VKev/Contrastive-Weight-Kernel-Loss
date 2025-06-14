@@ -44,9 +44,9 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
-    # torch.use_deterministic_algorithms(False)
+    torch.use_deterministic_algorithms(False)
     pl.seed_everything(seed, workers=True)
 
 
