@@ -77,7 +77,7 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout2d(p=0.15),
             nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(channels),
-            nn.Sigmoid()
+            nn.Sigmoid(),
             nn.Dropout2d(p=0.15),
         )
     
