@@ -333,15 +333,14 @@ class Model(pl.LightningModule):
                 self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=self.args.weight_decay
             )
 
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="min", factor=0.1, patience=5
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                optimizer, milestones=[100, 150], gamma=0.1
             )
 
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "train/loss_epoch",
                     "interval": "epoch",
                     "frequency": 1,
                 },
