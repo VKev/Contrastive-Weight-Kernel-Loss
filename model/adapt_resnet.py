@@ -64,6 +64,10 @@ class AdaptiveBlock(nn.Module):
         # 1x1 conv to reduce channels from C to 1 for positional embedding
         self.channel_reduce_conv = nn.Conv2d(channels, 1, kernel_size=1, stride=1, padding=0, bias=False)
         
+        # Learnable bias for the mask computation
+        self.mask_bias = nn.Parameter(torch.zeros(channels, height, width))
+        nn.init.normal_(self.mask_bias, mean=0.0, std=0.01)
+        
         # if num_positions >= 5:
         #     self.pos_emb_2d_1 = nn.Parameter(torch.zeros(channels, height, width))
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
@@ -79,7 +83,6 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout2d(p=0.1),
             nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(channels),
-            nn.Sigmoid(),
         )
     
         for m in self.mask_conv.modules():
@@ -102,10 +105,13 @@ class AdaptiveBlock(nn.Module):
         # Concatenate original x with positional embedding channel
         x_with_pos = torch.cat([x, pos_emb_channel], dim=1)  # (B, C+1, H, W)
         
+        # Add mask bias
+        x_with_pos = x_with_pos
+        
         # Generate mask
-        mask = self.mask_conv(x_with_pos)  # (B, channels, H, W)
+        mask = self.mask_conv(x_with_pos) + self.mask_bias.unsqueeze(0)
 
-        return mask
+        return F.sigmoid(mask)
 
 
 class MaskWrapper(nn.Module):
