@@ -61,6 +61,9 @@ class AdaptiveBlock(nn.Module):
         self.pos_emb_2d = nn.Parameter(torch.zeros(1, height, width))
         nn.init.xavier_normal_(self.pos_emb_2d)
         
+        # 1x1 conv to reduce channels from C to 1 for positional embedding
+        self.channel_reduce_conv = nn.Conv2d(channels, 1, kernel_size=1, stride=1, padding=0, bias=False)
+        
         # if num_positions >= 5:
         #     self.pos_emb_2d_1 = nn.Parameter(torch.zeros(channels, height, width))
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
@@ -70,7 +73,6 @@ class AdaptiveBlock(nn.Module):
         channel_scale = num_positions/3
         channels_scale = min(channel_scale, 3)
         self.mask_conv = nn.Sequential(
-            CBAM(channels + 1),
             nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(int(channels*channels_scale)),
             nn.ReLU(),
@@ -83,6 +85,9 @@ class AdaptiveBlock(nn.Module):
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        
+        # Initialize the channel reduction conv
+        nn.init.kaiming_normal_(self.channel_reduce_conv.weight, mode='fan_out', nonlinearity='relu')
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         B, C, H, W = x.shape
@@ -90,9 +95,9 @@ class AdaptiveBlock(nn.Module):
         if C != self.channels or H != self.height or W != self.width:
             raise RuntimeError(f"Expected input shape=({self.channels},{self.height},{self.width}), got ({C},{H},{W})")
         
-        # Create positional embedding channel: pos_emb_2d * x (where x is reduced to 1,H,W)
-        x_mean = x.mean(dim=1, keepdim=True)  # (B, 1, H, W) - average across channels
-        pos_emb_channel = self.pos_emb_2d.unsqueeze(0) * x_mean  # (B, 1, H, W)
+        # Create positional embedding channel: pos_emb_2d * x (where x is reduced to 1,H,W using conv)
+        x_reduced = self.channel_reduce_conv(x)  # (B, 1, H, W) - learnable channel reduction
+        pos_emb_channel = self.pos_emb_2d.unsqueeze(0) * x_reduced  # (B, 1, H, W)
         
         # Concatenate original x with positional embedding channel
         x_with_pos = torch.cat([x, pos_emb_channel], dim=1)  # (B, C+1, H, W)
