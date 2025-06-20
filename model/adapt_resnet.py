@@ -88,6 +88,9 @@ class AdaptiveBlock(nn.Module):
                 nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(int(channels*channels_scale)),
                 nn.ReLU(),
+                nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(),
                 nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(channels),
             )
