@@ -33,10 +33,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 import torch
-try:
-    from model.cbam import CBAM
-except:
-    from cbam import CBAM
+
 
 
 
@@ -73,17 +70,32 @@ class AdaptiveBlock(nn.Module):
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
 
         # Adaptive conv layers for this specific layer
-
-        channel_scale = num_positions/3
-        channels_scale = min(channel_scale, 3)
-        self.mask_conv = nn.Sequential(
-            nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(int(channels*channels_scale)),
-            nn.ReLU(),
-            nn.Dropout2d(p=0.1),
-            nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(channels),
-        )
+        if num_positions < 9:
+            channel_scale = num_positions/3
+            channels_scale = min(channel_scale, 3)
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(channels),
+            )
+        else:
+            channel_scale = num_positions/3
+            channels_scale = min(channel_scale, 5)
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(int(channels*channels_scale), int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(channels),
+            )
     
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
