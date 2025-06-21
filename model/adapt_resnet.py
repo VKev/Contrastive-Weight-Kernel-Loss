@@ -70,7 +70,7 @@ class AdaptiveBlock(nn.Module):
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
 
         # Adaptive conv layers for this specific layer
-        if num_positions < 500:
+        if num_positions < 9:
             channel_scale = num_positions/3
             channels_scale = min(channel_scale, 3)
             self.mask_conv = nn.Sequential(
@@ -81,16 +81,16 @@ class AdaptiveBlock(nn.Module):
                 nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(channels),
             )
-        # else:
-        #     channel_scale = num_positions/3
-        #     channels_scale = min(channel_scale, 5)
-        #     self.mask_conv = nn.Sequential(
-        #         nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-        #         nn.BatchNorm2d(int(channels*channels_scale)),
-        #         nn.ReLU(),
-        #         nn.Conv2d(int(channels*channels_scale), channels, kernel_size=3, stride=1, padding=1, bias=False),
-        #         nn.BatchNorm2d(channels),
-        #     )
+        else:
+            channel_scale = num_positions/3
+            channels_scale = min(channel_scale, 5)
+            self.mask_conv = nn.Sequential(
+                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
+                nn.BatchNorm2d(int(channels*channels_scale)),
+                nn.ReLU(),
+                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(channels),
+            )
     
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
