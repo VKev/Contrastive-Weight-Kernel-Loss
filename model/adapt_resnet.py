@@ -65,7 +65,7 @@ class AdaptiveBlock(nn.Module):
         self.mask_bias = nn.Parameter(torch.empty(channels, height, width))
         if num_positions > 9:
             # Initialize bias around 0.75 for deeper layers
-            nn.init.normal_(self.mask_bias, mean=0.75, std=0.01)
+            nn.init.normal_(self.mask_bias, mean=2, std=0.01)
         else:
             # Default initialization close to zero
             nn.init.normal_(self.mask_bias, mean=0.0, std=0.01)
