@@ -62,12 +62,12 @@ class AdaptiveBlock(nn.Module):
         self.channel_reduce_conv = nn.Conv2d(channels, 1, kernel_size=1, stride=1, padding=0, bias=False)
         
         # Learnable bias for the mask computation
-        self.mask_bias = nn.Parameter(torch.empty(channels, height, width))
         if num_positions > 9:
-            # Initialize bias around 0.75 for deeper layers
-            nn.init.normal_(self.mask_bias, mean=0.75, std=0.01)
+            # Initialize bias to fixed value 0.75 for deeper layers
+            self.mask_bias = nn.Parameter(torch.full((channels, height, width), 1.5))
         else:
             # Default initialization close to zero
+            self.mask_bias = nn.Parameter(torch.zeros(channels, height, width))
             nn.init.normal_(self.mask_bias, mean=0.0, std=0.01)
         
         # if num_positions >= 5:
@@ -104,7 +104,7 @@ class AdaptiveBlock(nn.Module):
                 nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
                 nn.BatchNorm2d(int(channels*channels_scale)),
                 nn.ReLU(),
-                nn.Dropout2d(p=0.2),
+                nn.Dropout2d(p=0.5),
                 nn.Conv2d(int(channels*channels_scale), channels, kernel_size=3, stride=1, padding=1, bias=False),
                 nn.BatchNorm2d(channels),
             )
