@@ -79,7 +79,7 @@ class AdaptiveBlock(nn.Module):
         channels_scale = min(channel_scale, 5)
         
         # Learnable scaling parameters alpha and beta, scaled by channels_scale and never less than 1
-        init_scale = max(1.0, channels_scale/2)
+        init_scale = max(1.0, channels_scale/2.5)
         self.alpha = nn.Parameter(torch.full((1,), init_scale))  # Initialize alpha to channels_scale (min 1)
         self.mask_conv = nn.Sequential(
             CBAMBlock(channel=channels+1,reduction=16,kernel_size=7),  # channels+1 due to pos embedding
