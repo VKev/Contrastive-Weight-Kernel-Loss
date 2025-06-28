@@ -32,8 +32,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
-import torch
-
+try:
+    from cbam import CBAMBlock
+except:
+    from .cbam import CBAMBlock
 
 
 
@@ -54,69 +56,45 @@ class AdaptiveBlock(nn.Module):
         self.width = width
         self.num_positions = num_positions
 
-        # Learnable 2D position embeddings (3D: 1, height, width)
-        self.pos_emb_2d = nn.Parameter(torch.zeros(1, height, width))
-        nn.init.xavier_normal_(self.pos_emb_2d)
+        # Position-specific Conv2d layers (one Conv2d for every 2 positions)
+        num_conv_layers = (num_positions + 1) // 2  # Group positions in pairs
+        self.pos_emb_2d = nn.ModuleList([
+            nn.Conv2d(channels, 1, kernel_size=7, stride=1, padding=3, bias=False)
+            for _ in range(num_conv_layers)
+        ])
         
-        # 1x1 conv to reduce channels from C to 1 for positional embedding
-        self.channel_reduce_conv = nn.Conv2d(channels, 1, kernel_size=1, stride=1, padding=0, bias=False)
+        # Initialize all position-specific Conv2d layers
+        for conv in self.pos_emb_2d:
+            nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
         
         # Learnable bias for the mask computation
-        if num_positions > 9:
-            # Initialize bias to fixed value 0.75 for deeper layers
-            self.mask_bias = nn.Parameter(torch.full((channels, height, width), 2.5))
-        else:
-            # Default initialization close to zero
-            self.mask_bias = nn.Parameter(torch.zeros(channels, height, width))
-            nn.init.normal_(self.mask_bias, mean=0.0, std=0.01)
+        self.mask_bias = nn.Parameter(torch.zeros(channels, height, width))
+        nn.init.normal_(self.mask_bias, mean=0.0, std=0.01)
         
         # if num_positions >= 5:
         #     self.pos_emb_2d_1 = nn.Parameter(torch.zeros(channels, height, width))
         #     nn.init.xavier_normal_(self.pos_emb_2d_1)
 
-        # Adaptive conv layers for this specific layer
-        if num_positions < 9:
-            channel_scale = num_positions/3
-            channels_scale = min(channel_scale, 3)
-            self.mask_conv = nn.Sequential(
-                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(int(channels*channels_scale)),
-                nn.ReLU(),
-                nn.Dropout2d(p=0.1),
-                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(channels),
-            )
-        elif num_positions == 9:
-            channel_scale = num_positions/3
-            channels_scale = min(channel_scale, 5)
-            self.mask_conv = nn.Sequential(
-                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(int(channels*channels_scale)),
-                nn.ReLU(),
-                nn.Dropout2d(p=0.2),
-                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=3, stride=1, padding=1, bias=False),
-                nn.BatchNorm2d(channels),
-            )
-        else:
-            channel_scale = num_positions/3
-            channels_scale = min(channel_scale, 5)
-            self.mask_conv = nn.Sequential(
-                nn.Conv2d(channels + 1, int(channels*channels_scale), kernel_size=1, stride=1, padding=0, bias=False),
-                nn.BatchNorm2d(int(channels*channels_scale)),
-                nn.ReLU(),
-                nn.Dropout2d(p=0.4),
-                nn.Conv2d(int(channels*channels_scale), channels, kernel_size=3, stride=1, padding=1, bias=False),
-                nn.BatchNorm2d(channels),
-            )
+        channel_scale = num_positions/3
+        channels_scale = min(channel_scale, 5)
+        
+        # Learnable scaling parameters alpha and beta, scaled by channels_scale and never less than 1
+        init_scale = max(1.0, channels_scale/2)
+        self.alpha = nn.Parameter(torch.full((1,), init_scale))  # Initialize alpha to channels_scale (min 1)
+        self.mask_conv = nn.Sequential(
+            CBAMBlock(channel=channels+1,reduction=16,kernel_size=7),  # channels+1 due to pos embedding
+            nn.BatchNorm2d(channels+1),
+            nn.ReLU(),
+            nn.Dropout2d(p=0.2),
+            nn.Conv2d(channels+1, channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(channels),
+        )
 
         
     
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        
-        # Initialize the channel reduction conv
-        nn.init.kaiming_normal_(self.channel_reduce_conv.weight, mode='fan_out', nonlinearity='relu')
 
     def forward(self, x: torch.Tensor, pos: int) -> torch.Tensor:
         B, C, H, W = x.shape
@@ -124,9 +102,9 @@ class AdaptiveBlock(nn.Module):
         if C != self.channels or H != self.height or W != self.width:
             raise RuntimeError(f"Expected input shape=({self.channels},{self.height},{self.width}), got ({C},{H},{W})")
         
-        # Create positional embedding channel: pos_emb_2d * x (where x is reduced to 1,H,W using conv)
-        x_reduced = self.channel_reduce_conv(x)  # (B, 1, H, W) - learnable channel reduction
-        pos_emb_channel = self.pos_emb_2d.unsqueeze(0) * x_reduced  # (B, 1, H, W)
+        # Create positional embedding channel using grouped position-specific Conv2d
+        conv_idx = pos // 2  # Map position to Conv2d index (2 positions per Conv2d)
+        pos_emb_channel = self.pos_emb_2d[conv_idx](x)  # (B, 1, H, W) - grouped position-specific conv
         
         # Concatenate original x with positional embedding channel
         x_with_pos = torch.cat([x, pos_emb_channel], dim=1)  # (B, C+1, H, W)
@@ -134,8 +112,8 @@ class AdaptiveBlock(nn.Module):
         # Add mask bias
         x_with_pos = x_with_pos
         
-        # Generate mask
-        mask = self.mask_conv(x_with_pos) + self.mask_bias.unsqueeze(0)
+        # Generate mask with learnable alpha and beta scaling
+        mask = self.alpha * self.mask_conv(x_with_pos) + self.mask_bias.unsqueeze(0)
 
         return F.sigmoid(mask)
 
