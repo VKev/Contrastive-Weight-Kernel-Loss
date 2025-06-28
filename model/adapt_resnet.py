@@ -81,12 +81,36 @@ class AdaptiveBlock(nn.Module):
         # Learnable scaling parameters alpha and beta, scaled by channels_scale and never less than 1
         init_scale = max(1.0, channels_scale/2.5)
         self.alpha = nn.Parameter(torch.full((1,), init_scale))  # Initialize alpha to channels_scale (min 1)
+        
+        # Dynamic dropout rate based on num_positions
+        if num_positions == 3:
+            dropout_rate = 0.2
+        elif num_positions == 5:
+            dropout_rate = 0.25
+        elif num_positions == 7:
+            dropout_rate = 0.3
+        elif num_positions == 9:
+            dropout_rate = 0.35
+        else:
+            dropout_rate = 0.4  # max dropout for 18+ positions
+            
+        # Dynamic kernel size based on num_positions
+        if num_positions in [3, 5]:
+            conv_kernel_size = 3
+            conv_padding = 1
+        elif num_positions in [7, 9]:
+            conv_kernel_size = 5
+            conv_padding = 2
+        else:  # 18+ positions
+            conv_kernel_size = 7
+            conv_padding = 3
+        
         self.mask_conv = nn.Sequential(
             CBAMBlock(channel=channels+1,reduction=16,kernel_size=7),  # channels+1 due to pos embedding
             nn.BatchNorm2d(channels+1),
             nn.ReLU(),
-            nn.Dropout2d(p=0.2),
-            nn.Conv2d(channels+1, channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Dropout2d(p=dropout_rate),
+            nn.Conv2d(channels+1, channels, kernel_size=conv_kernel_size, stride=1, padding=conv_padding, bias=False),
             nn.BatchNorm2d(channels),
         )
 
