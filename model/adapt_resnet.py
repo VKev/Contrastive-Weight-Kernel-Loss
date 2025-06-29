@@ -42,6 +42,7 @@ except:
 __all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
 
+
 class AdaptiveBlock(nn.Module):
     def __init__(
         self,
@@ -84,15 +85,13 @@ class AdaptiveBlock(nn.Module):
         
         # Dynamic dropout rate based on num_positions
         if num_positions == 3:
-            dropout_rate = 0.2
+            dropout_rate = 0.1
         elif num_positions == 5:
-            dropout_rate = 0.25
-        elif num_positions == 7:
-            dropout_rate = 0.3
-        elif num_positions == 9:
-            dropout_rate = 0.35
+            dropout_rate = 0.15
+        elif num_positions in [7, 9]:
+            dropout_rate = 0.2
         else:
-            dropout_rate = 0.4  # max dropout for 18+ positions
+            dropout_rate = 0.25
             
         # Dynamic kernel size based on num_positions
         if num_positions in [3, 5]:
@@ -112,6 +111,7 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout2d(p=dropout_rate),
             nn.Conv2d(channels+1, channels, kernel_size=conv_kernel_size, stride=1, padding=conv_padding, bias=False),
             nn.BatchNorm2d(channels),
+            nn.Dropout2d(p=0.1),
         )
 
         
