@@ -84,14 +84,12 @@ class AdaptiveBlock(nn.Module):
         self.alpha = nn.Parameter(torch.full((1,), init_scale))  # Initialize alpha to channels_scale (min 1)
         
         # Dynamic dropout rate based on num_positions
-        if num_positions == 3:
+        if num_positions in [3, 5]:
             dropout_rate = 0.1
-        elif num_positions == 5:
-            dropout_rate = 0.15
         elif num_positions in [7, 9]:
-            dropout_rate = 0.2
+            dropout_rate = 0.15
         else:
-            dropout_rate = 0.25
+            dropout_rate = 0.2
             
         # Dynamic kernel size based on num_positions
         if num_positions in [3, 5]:
@@ -113,9 +111,7 @@ class AdaptiveBlock(nn.Module):
             nn.BatchNorm2d(channels),
             nn.Dropout2d(p=0.1),
         )
-
         
-    
         for m in self.mask_conv.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
