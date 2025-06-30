@@ -111,7 +111,7 @@ class AdaptiveBlock(nn.Module):
             nn.Dropout2d(p=dropout_rate),
             nn.Conv2d(channels+1, channels, kernel_size=conv_kernel_size, stride=1, padding=conv_padding, bias=False),
             nn.BatchNorm2d(channels),
-            nn.Dropout2d(p=dropout_rate),
+            nn.Dropout2d(p=0.1),
         )
 
         
