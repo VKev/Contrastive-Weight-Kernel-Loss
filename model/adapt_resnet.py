@@ -80,7 +80,7 @@ class AdaptiveBlock(nn.Module):
         channels_scale = min(channel_scale, 5)
         
         # Learnable scaling parameters alpha and beta, scaled by channels_scale and never less than 1
-        init_scale = max(1.0, channels_scale/2.5)
+        init_scale = max(1.0, channels_scale/2.5 +1)
         self.alpha = nn.Parameter(torch.full((1,), init_scale))  # Initialize alpha to channels_scale (min 1)
         
         # Dynamic dropout rate based on num_positions
